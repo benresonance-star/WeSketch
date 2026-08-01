@@ -1,5 +1,7 @@
 import type { BrushSettings } from "@/types/canvas";
 
+export type BrushPaletteLayout = "standard" | "horizontal";
+
 const SWATCHES = [
   "#242220",
   "#5f5a54",
@@ -15,19 +17,23 @@ const SWATCHES = [
 
 type BrushPaletteProps = {
   settings: BrushSettings;
+  layout: BrushPaletteLayout;
   onChange: (settings: BrushSettings) => void;
+  onLayoutChange: (layout: BrushPaletteLayout) => void;
   onClose: () => void;
 };
 
 export function BrushPalette({
   settings,
+  layout,
   onChange,
+  onLayoutChange,
   onClose,
 }: BrushPaletteProps) {
   return (
     <section
       aria-label="Pen palette"
-      className="brush-popover"
+      className={`brush-popover ${layout}`}
       data-testid="brush-palette"
     >
       <header className="brush-popover-header">
@@ -35,9 +41,32 @@ export function BrushPalette({
           <p className="eyebrow">Brush</p>
           <h2>Studio Pen</h2>
         </div>
-        <button aria-label="Close pen palette" onClick={onClose} type="button">
-          ×
-        </button>
+        <div className="brush-popover-actions">
+          <div className="brush-layout-toggle" aria-label="Pen palette layout">
+            <button
+              aria-pressed={layout === "standard"}
+              onClick={() => onLayoutChange("standard")}
+              type="button"
+            >
+              Standard
+            </button>
+            <button
+              aria-pressed={layout === "horizontal"}
+              onClick={() => onLayoutChange("horizontal")}
+              type="button"
+            >
+              Horizontal
+            </button>
+          </div>
+          <button
+            aria-label="Close pen palette"
+            className="brush-close-button"
+            onClick={onClose}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
       </header>
 
       <div className="brush-preview" aria-hidden="true">
@@ -49,7 +78,7 @@ export function BrushPalette({
         />
       </div>
 
-      <div className="brush-control">
+      <div className="brush-control brush-size-control">
         <div className="brush-control-label">
           <label htmlFor="brush-size">Size</label>
           <output htmlFor="brush-size">{settings.size.toFixed(1)} px</output>
@@ -67,7 +96,7 @@ export function BrushPalette({
         />
       </div>
 
-      <div className="brush-control">
+      <div className="brush-control brush-colour-control">
         <div className="brush-control-label">
           <label htmlFor="brush-color">Colour</label>
           <span>{settings.color.toUpperCase()}</span>

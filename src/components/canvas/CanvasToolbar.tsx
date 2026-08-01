@@ -1,6 +1,22 @@
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import {
+  Eraser,
+  Hand,
+  ImagePlus,
+  LassoSelect,
+  Maximize,
+  MousePointer2,
+  PenLine,
+  Redo2,
+  ScanSearch,
+  Undo2,
+  type LucideIcon,
+} from "lucide-react";
 
-import { BrushPalette } from "@/components/canvas/BrushPalette";
+import {
+  BrushPalette,
+  type BrushPaletteLayout,
+} from "@/components/canvas/BrushPalette";
 import type { BrushSettings, Tool } from "@/types/canvas";
 
 type CanvasToolbarProps = {
@@ -14,13 +30,24 @@ type CanvasToolbarProps = {
   onFit: () => void;
 };
 
-const TOOLS: Array<{ tool: Tool; icon: string; label: string }> = [
-  { tool: "eraser", icon: "◇", label: "Eraser" },
-  { tool: "rectangle", icon: "□", label: "Select" },
-  { tool: "lasso", icon: "◯", label: "Lasso" },
-  { tool: "object", icon: "↖", label: "Object" },
-  { tool: "hand", icon: "✣", label: "Hand" },
+const TOOLS: Array<{
+  tool: Tool;
+  icon: LucideIcon;
+  label: string;
+  separatorBefore?: boolean;
+}> = [
+  { tool: "eraser", icon: Eraser, label: "Eraser" },
+  { tool: "rectangle", icon: ScanSearch, label: "Select for AI" },
+  { tool: "lasso", icon: LassoSelect, label: "Lasso" },
+  {
+    tool: "object",
+    icon: MousePointer2,
+    label: "Object",
+    separatorBefore: true,
+  },
+  { tool: "hand", icon: Hand, label: "Hand" },
 ];
+const BRUSH_PALETTE_LAYOUT_KEY = "wesketch-brush-palette-layout-v1";
 
 export function CanvasToolbar({
   tool,
@@ -33,6 +60,21 @@ export function CanvasToolbar({
   onFit,
 }: CanvasToolbarProps) {
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [paletteLayout, setPaletteLayout] =
+    useState<BrushPaletteLayout>("standard");
+
+  useEffect(() => {
+    const storedLayout = window.localStorage.getItem(BRUSH_PALETTE_LAYOUT_KEY);
+    if (storedLayout === "standard" || storedLayout === "horizontal") {
+      const frame = requestAnimationFrame(() => setPaletteLayout(storedLayout));
+      return () => cancelAnimationFrame(frame);
+    }
+  }, []);
+
+  const changePaletteLayout = (layout: BrushPaletteLayout) => {
+    setPaletteLayout(layout);
+    window.localStorage.setItem(BRUSH_PALETTE_LAYOUT_KEY, layout);
+  };
 
   return (
     <>
@@ -46,7 +88,7 @@ export function CanvasToolbar({
           }}
           type="button"
         >
-          <span className="tool-icon">╱</span>
+          <PenLine aria-hidden="true" className="tool-icon" />
           Pen
         </button>
         <button
@@ -69,43 +111,54 @@ export function CanvasToolbar({
           />
           {brushSettings.size.toFixed(1)}
         </button>
-        {TOOLS.map((item) => (
-          <button
-            aria-pressed={tool === item.tool}
-            className={tool === item.tool ? "tool-button active" : "tool-button"}
-            key={item.tool}
-            onClick={() => {
-              setIsPaletteOpen(false);
-              onToolChange(item.tool);
-            }}
-            type="button"
-          >
-            <span className="tool-icon">{item.icon}</span>
-            {item.label}
-          </button>
-        ))}
+        {TOOLS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Fragment key={item.tool}>
+              {item.separatorBefore ? (
+                <div aria-hidden="true" className="tool-divider" />
+              ) : null}
+              <button
+                aria-pressed={tool === item.tool}
+                className={
+                  tool === item.tool ? "tool-button active" : "tool-button"
+                }
+                onClick={() => {
+                  setIsPaletteOpen(false);
+                  onToolChange(item.tool);
+                }}
+                type="button"
+              >
+                <Icon aria-hidden="true" className="tool-icon" />
+                {item.label}
+              </button>
+            </Fragment>
+          );
+        })}
         <div className="tool-divider" />
         <button className="tool-button" onClick={onImport} type="button">
-          <span className="tool-icon">＋</span>
+          <ImagePlus aria-hidden="true" className="tool-icon" />
           Image
         </button>
         <button className="tool-button" onClick={onUndo} type="button">
-          <span className="tool-icon">↶</span>
+          <Undo2 aria-hidden="true" className="tool-icon" />
           Undo
         </button>
         <button className="tool-button" onClick={onRedo} type="button">
-          <span className="tool-icon">↷</span>
+          <Redo2 aria-hidden="true" className="tool-icon" />
           Redo
         </button>
         <button className="tool-button" onClick={onFit} type="button">
-          <span className="tool-icon">⌗</span>
+          <Maximize aria-hidden="true" className="tool-icon" />
           Fit
         </button>
       </aside>
       {isPaletteOpen ? (
         <BrushPalette
+          layout={paletteLayout}
           onChange={onBrushSettingsChange}
           onClose={() => setIsPaletteOpen(false)}
+          onLayoutChange={changePaletteLayout}
           settings={brushSettings}
         />
       ) : null}

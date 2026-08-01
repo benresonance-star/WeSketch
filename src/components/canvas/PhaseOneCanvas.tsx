@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { Settings } from "lucide-react";
 
 import { CanvasToolbar } from "@/components/canvas/CanvasToolbar";
 import { ContextPanel } from "@/components/canvas/ContextPanel";
@@ -37,6 +38,7 @@ import {
   normalizeBounds,
   pointInBounds,
 } from "@/lib/canvas/selection";
+import { persistSelectionContext } from "@/lib/canvas/selection-persistence";
 import { renderSnapshotBundle } from "@/lib/canvas/snapshots";
 import {
   clearCanvasObjects,
@@ -51,6 +53,7 @@ import {
   markSceneDeletion,
   saveCanvasObject,
   saveStroke,
+  type SceneDeletion,
 } from "@/lib/canvas/storage";
 import {
   clearRemoteScene,
@@ -67,10 +70,15 @@ import type {
   BrushSettings,
   CanvasImageObject,
   CanvasSelection,
+  ConversationMessage,
+  ImageGenerationQuality,
+  ImageGenerationSize,
   InteractionMode,
   PrototypeStats,
+  SavedUiConfiguration,
   SnapshotPreview,
   Stroke,
+  ThemeMode,
   Tool,
 } from "@/types/canvas";
 
@@ -78,8 +86,6 @@ const WORLD_WIDTH = 2048;
 const WORLD_HEIGHT = 1536;
 const DEFAULT_DPR = 1.5;
 const MAX_DPR = 2;
-const STRESS_STROKE_COUNT = 10_000;
-const STRESS_POINTS_PER_STROKE = 12;
 const PEN_COLOR = "#242220";
 const BRUSH_SETTINGS_STORAGE_KEY = "wesketch-brush-settings-v1";
 const DEFAULT_BRUSH_SETTINGS: BrushSettings = {
@@ -88,8 +94,9 @@ const DEFAULT_BRUSH_SETTINGS: BrushSettings = {
   pressureEnabled: true,
 };
 const SELECTION_COLOR = "#2468f2";
-const ARTBOARD_COLOR = "#fbfaf6";
-const WORKSPACE_COLOR = "#e9e7e2";
+const LIGHT_WORKSPACE_COLOR = "#e9e7e2";
+const DARK_WORKSPACE_COLOR = "#191817";
+const UI_CONFIGURATION_STORAGE_KEY = "wesketch-ui-configurations-v1";
 const MIN_SELECTION_SIZE = 8;
 
 type SurfaceSize = {
@@ -141,7 +148,19 @@ const INITIAL_STATS: PrototypeStats = {
   pointerCancelCount: 0,
   renderDurationMs: 0,
   persistenceState: "loading",
+  persistenceError: null,
 };
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown persistence error.";
+}
+
+function base64ImageToBlob(base64: string): Blob {
+  const bytes = Uint8Array.from(atob(base64), (character) =>
+    character.charCodeAt(0),
+  );
+  return new Blob([bytes], { type: "image/webp" });
+}
 
 function configureCanvas(
   canvas: HTMLCanvasElement,
@@ -158,6 +177,14 @@ function configureCanvas(
   }
 
   return canvas.getContext("2d", { alpha });
+}
+
+function revokeSnapshotUrls(snapshot: SnapshotPreview) {
+  [
+    snapshot.selectionUrl,
+    snapshot.neighbourhoodUrl,
+    snapshot.canvasUrl,
+  ].forEach((url) => URL.revokeObjectURL(url));
 }
 
 function screenPointFromEvent(
@@ -213,9 +240,39 @@ function isResizeHandle(
   );
 }
 
+function isSavedUiConfiguration(
+  value: unknown,
+): value is SavedUiConfiguration {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<SavedUiConfiguration>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.name === "string" &&
+    (candidate.themeMode === "light" || candidate.themeMode === "dark") &&
+    typeof candidate.canvasColor === "string" &&
+    /^#[0-9a-f]{6}$/i.test(candidate.canvasColor)
+  );
+}
+
+function persistUiConfigurations(
+  configurations: SavedUiConfiguration[],
+): void {
+  try {
+    localStorage.setItem(
+      UI_CONFIGURATION_STORAGE_KEY,
+      JSON.stringify(configurations),
+    );
+  } catch {
+    // Configurations remain available for this session.
+  }
+}
+
 type PhaseOneCanvasProps = {
   backLink: ReactNode;
   canvasId: string;
+  initialCanvasColor: string;
   projectId: string;
   projectTitle: string;
   userId: string;
@@ -224,6 +281,7 @@ type PhaseOneCanvasProps = {
 export function PhaseOneCanvas({
   backLink,
   canvasId,
+  initialCanvasColor,
   projectId,
   projectTitle,
   userId,
@@ -256,8 +314,12 @@ export function PhaseOneCanvas({
   const hasFittedRef = useRef(false);
   const pendingSyncCountRef = useRef(0);
   const syncChainRef = useRef<Promise<void>>(Promise.resolve());
+  const generationAbortRef = useRef<AbortController | null>(null);
   const snapshotsRef = useRef<SnapshotPreview | null>(null);
+  const messageSelectionUrlsRef = useRef(new Set<string>());
   const brushSettingsRef = useRef(DEFAULT_BRUSH_SETTINGS);
+  const canvasColorRef = useRef(initialCanvasColor);
+  const workspaceColorRef = useRef(LIGHT_WORKSPACE_COLOR);
   const supabase = useMemo(() => createClient(), []);
   const remoteContext = useMemo<RemoteSceneContext>(
     () => ({ canvasId, projectId, userId }),
@@ -266,19 +328,231 @@ export function PhaseOneCanvas({
   const [tool, setTool] = useState<Tool>("pen");
   const toolRef = useRef<Tool>("pen");
   const [brushSettings, setBrushSettings] = useState(DEFAULT_BRUSH_SETTINGS);
+  const [canvasColor, setCanvasColor] = useState(initialCanvasColor);
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
+  const [savedUiConfigurations, setSavedUiConfigurations] = useState<
+    SavedUiConfiguration[]
+  >([]);
   const [dpr, setDpr] = useState(DEFAULT_DPR);
-  const [stressLoaded, setStressLoaded] = useState(false);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<SnapshotPreview | null>(null);
   const [snapshotState, setSnapshotState] = useState<
     "idle" | "preparing" | "ready" | "error"
   >("idle");
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [prompt, setPrompt] = useState("");
+  const [aiState, setAiState] = useState<
+    "idle" | "streaming" | "generating"
+  >("idle");
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [includeNeighbourhood, setIncludeNeighbourhood] = useState(false);
+  const [includeCanvas, setIncludeCanvas] = useState(false);
+  const [imageQuality, setImageQuality] =
+    useState<ImageGenerationQuality>("low");
+  const [imageSize, setImageSize] = useState<ImageGenerationSize>("1024x1024");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [stats, setStats] = useState<PrototypeStats>(INITIAL_STATS);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      messageSelectionUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      messageSelectionUrlsRef.current.clear();
+      const { data: conversations } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("canvas_id", canvasId)
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      const latestConversation = conversations?.[0];
+
+      if (!latestConversation || cancelled) {
+        return;
+      }
+
+      const { data: storedMessages } = await supabase
+        .from("messages")
+        .select("id, role, content, selection_id, ai_run_id")
+        .eq("conversation_id", latestConversation.id)
+        .order("created_at", { ascending: true });
+      const selectionIds = Array.from(
+        new Set(
+          (storedMessages ?? [])
+            .map((message) => message.selection_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      );
+      const selectionUrls = new Map<string, string>();
+      const generatedArtifacts = new Map<
+        string,
+        { artifactId: string; storagePath: string; url: string }
+      >();
+      const latestContexts = new Map<
+        string,
+        {
+          id: string;
+          selectionPath: string;
+          neighbourhoodPath: string;
+          canvasPath: string;
+        }
+      >();
+      let restoredSnapshots: SnapshotPreview | null = null;
+
+      if (selectionIds.length > 0) {
+        const { data: contexts } = await supabase
+          .from("context_snapshots")
+          .select(
+            "id, selection_id, selection_asset_path, neighbourhood_asset_path, canvas_asset_path, created_at",
+          )
+          .in("selection_id", selectionIds)
+          .order("created_at", { ascending: false });
+        const latestPaths = new Map<string, string>();
+        (contexts ?? []).forEach((context) => {
+          if (!latestPaths.has(context.selection_id)) {
+            latestPaths.set(context.selection_id, context.selection_asset_path);
+            latestContexts.set(context.selection_id, {
+              id: context.id,
+              selectionPath: context.selection_asset_path,
+              neighbourhoodPath: context.neighbourhood_asset_path,
+              canvasPath: context.canvas_asset_path,
+            });
+          }
+        });
+        await Promise.all(
+          Array.from(latestPaths.entries()).map(async ([selectionId, path]) => {
+            const { data: blob } = await supabase.storage
+              .from("project-assets")
+              .download(path);
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              messageSelectionUrlsRef.current.add(url);
+              selectionUrls.set(selectionId, url);
+            }
+          }),
+        );
+        const activeSelectionId = [...(storedMessages ?? [])]
+          .reverse()
+          .find(
+            (message) => message.role === "user" && message.selection_id,
+          )?.selection_id;
+        const activeContext = activeSelectionId
+          ? latestContexts.get(activeSelectionId)
+          : undefined;
+        if (activeSelectionId && activeContext) {
+          const restored = await Promise.all(
+            [
+              activeContext.selectionPath,
+              activeContext.neighbourhoodPath,
+              activeContext.canvasPath,
+            ].map((path) =>
+              supabase.storage.from("project-assets").download(path),
+            ),
+          );
+          if (restored.every(({ data }) => Boolean(data))) {
+            restoredSnapshots = {
+              selectionUrl: URL.createObjectURL(restored[0].data!),
+              neighbourhoodUrl: URL.createObjectURL(restored[1].data!),
+              canvasUrl: URL.createObjectURL(restored[2].data!),
+              contextSnapshotId: activeContext.id,
+              selectionId: activeSelectionId,
+            };
+          }
+        }
+      }
+      const aiRunIds = Array.from(
+        new Set(
+          (storedMessages ?? [])
+            .map((message) => message.ai_run_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      );
+      if (aiRunIds.length > 0) {
+        const { data: artifacts } = await supabase
+          .from("artifacts")
+          .select("id, source_ai_run_id, storage_path")
+          .eq("artifact_type", "generated_image")
+          .in("source_ai_run_id", aiRunIds);
+        await Promise.all(
+          (artifacts ?? []).map(async (artifact) => {
+            if (!artifact.source_ai_run_id) {
+              return;
+            }
+            const { data: blob } = await supabase.storage
+              .from("project-assets")
+              .download(artifact.storage_path);
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              messageSelectionUrlsRef.current.add(url);
+              generatedArtifacts.set(artifact.source_ai_run_id, {
+                artifactId: artifact.id,
+                storagePath: artifact.storage_path,
+                url,
+              });
+            }
+          }),
+        );
+      }
+
+      if (!cancelled) {
+        if (restoredSnapshots) {
+          if (snapshotsRef.current) {
+            revokeSnapshotUrls(snapshotsRef.current);
+          }
+          snapshotsRef.current = restoredSnapshots;
+          setSnapshots(restoredSnapshots);
+          setSnapshotState("ready");
+        }
+        setConversationId(latestConversation.id);
+        setMessages(
+          (storedMessages ?? []).map((message) => ({
+            id: message.id,
+            role: message.role as ConversationMessage["role"],
+            content: message.content,
+            selectionId: message.selection_id ?? undefined,
+            selectionUrl:
+              message.role === "user" && message.selection_id
+                ? selectionUrls.get(message.selection_id)
+                : undefined,
+            generatedImageUrl: message.ai_run_id
+              ? generatedArtifacts.get(message.ai_run_id)?.url
+              : undefined,
+            artifactId: message.ai_run_id
+              ? generatedArtifacts.get(message.ai_run_id)?.artifactId
+              : undefined,
+            generatedStoragePath: message.ai_run_id
+              ? generatedArtifacts.get(message.ai_run_id)?.storagePath
+              : undefined,
+          })),
+        );
+      } else if (restoredSnapshots) {
+        revokeSnapshotUrls(restoredSnapshots);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canvasId, supabase]);
+
+  useEffect(() => {
+    const urls = messageSelectionUrlsRef.current;
+    return () => {
+      generationAbortRef.current?.abort();
+      urls.forEach((url) => URL.revokeObjectURL(url));
+      urls.clear();
+    };
+  }, []);
 
   const queueRemoteSync = useCallback((operation: () => Promise<void>) => {
     pendingSyncCountRef.current += 1;
-    setStats((current) => ({ ...current, persistenceState: "saving" }));
+    setStats((current) => ({
+      ...current,
+      persistenceState: "saving",
+      persistenceError: null,
+    }));
     const next = syncChainRef.current.then(operation);
     syncChainRef.current = next.catch(() => undefined);
     void next
@@ -288,17 +562,19 @@ export function PhaseOneCanvas({
           setStats((current) => ({ ...current, persistenceState: "saved" }));
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         pendingSyncCountRef.current -= 1;
-        setStats((current) => ({ ...current, persistenceState: "error" }));
+        setStats((current) => ({
+          ...current,
+          persistenceState: "error",
+          persistenceError: errorMessage(error),
+        }));
       });
   }, []);
 
   const invalidateSnapshots = useCallback(() => {
     if (snapshotsRef.current) {
-      Object.values(snapshotsRef.current).forEach((url) =>
-        URL.revokeObjectURL(url),
-      );
+      revokeSnapshotUrls(snapshotsRef.current);
       snapshotsRef.current = null;
     }
 
@@ -349,7 +625,10 @@ export function PhaseOneCanvas({
         objects: objectsRef.current,
         imageSources: imageSourcesRef.current,
       },
-      { workspace: WORKSPACE_COLOR, artboard: ARTBOARD_COLOR },
+      {
+        workspace: workspaceColorRef.current,
+        artboard: canvasColorRef.current,
+      },
     );
     updateDocumentStats(performance.now() - startedAt);
   }, [updateDocumentStats]);
@@ -459,6 +738,95 @@ export function PhaseOneCanvas({
     });
   }, [renderInteractions, renderScene]);
 
+  const changeThemeMode = useCallback(
+    (nextTheme: ThemeMode) => {
+      setThemeMode(nextTheme);
+      workspaceColorRef.current =
+        nextTheme === "dark" ? DARK_WORKSPACE_COLOR : LIGHT_WORKSPACE_COLOR;
+      document.documentElement.dataset.theme = nextTheme;
+      try {
+        localStorage.setItem("wesketch-theme-v1", nextTheme);
+      } catch {
+        // The selected theme still applies for this session.
+      }
+      scheduleRender();
+    },
+    [scheduleRender],
+  );
+
+  const changeCanvasColor = useCallback(
+    (nextColor: string) => {
+      canvasColorRef.current = nextColor;
+      setCanvasColor(nextColor);
+      invalidateSnapshots();
+      scheduleRender();
+      queueRemoteSync(async () => {
+        const supabase = createClient();
+        const { error } = await supabase
+          .from("canvases")
+          .update({ background: { color: nextColor } })
+          .eq("id", canvasId);
+        if (error) {
+          throw error;
+        }
+      });
+    },
+    [
+      canvasId,
+      invalidateSnapshots,
+      queueRemoteSync,
+      scheduleRender,
+    ],
+  );
+
+  const saveUiConfiguration = useCallback(
+    (name: string): string | null => {
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        return null;
+      }
+      const existing = savedUiConfigurations.find(
+        (configuration) =>
+          configuration.name.toLocaleLowerCase() ===
+          trimmedName.toLocaleLowerCase(),
+      );
+      const configuration: SavedUiConfiguration = {
+        id: existing?.id ?? createUuid(),
+        name: trimmedName,
+        themeMode,
+        canvasColor,
+      };
+      const nextConfigurations = existing
+        ? savedUiConfigurations.map((item) =>
+            item.id === existing.id ? configuration : item,
+          )
+        : [...savedUiConfigurations, configuration];
+      setSavedUiConfigurations(nextConfigurations);
+      persistUiConfigurations(nextConfigurations);
+      return configuration.id;
+    },
+    [canvasColor, savedUiConfigurations, themeMode],
+  );
+
+  const applyUiConfiguration = useCallback(
+    (configuration: SavedUiConfiguration) => {
+      changeThemeMode(configuration.themeMode);
+      changeCanvasColor(configuration.canvasColor);
+    },
+    [changeCanvasColor, changeThemeMode],
+  );
+
+  const deleteUiConfiguration = useCallback(
+    (id: string) => {
+      const nextConfigurations = savedUiConfigurations.filter(
+        (configuration) => configuration.id !== id,
+      );
+      setSavedUiConfigurations(nextConfigurations);
+      persistUiConfigurations(nextConfigurations);
+    },
+    [savedUiConfigurations],
+  );
+
   const fitToScreen = useCallback(() => {
     const size = surfaceSizeRef.current;
     viewportRef.current = fitViewport(
@@ -471,8 +839,49 @@ export function PhaseOneCanvas({
   }, [scheduleRender]);
 
   useEffect(() => {
+    hasFittedRef.current = false;
+    const frame = requestAnimationFrame(() => {
+      const size = surfaceSizeRef.current;
+      if (size.width > 1 && size.height > 1) {
+        hasFittedRef.current = true;
+        fitToScreen();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [canvasId, fitToScreen]);
+
+  useEffect(() => {
     toolRef.current = tool;
   }, [tool]);
+
+  useEffect(() => {
+    const nextTheme: ThemeMode =
+      document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+    workspaceColorRef.current =
+      nextTheme === "dark" ? DARK_WORKSPACE_COLOR : LIGHT_WORKSPACE_COLOR;
+    const frame = requestAnimationFrame(() => {
+      setThemeMode(nextTheme);
+      scheduleRender();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [scheduleRender]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem(UI_CONFIGURATION_STORAGE_KEY) ?? "[]",
+      ) as unknown;
+      if (Array.isArray(stored)) {
+        const configurations = stored.filter(isSavedUiConfiguration);
+        const frame = requestAnimationFrame(() =>
+          setSavedUiConfigurations(configurations),
+        );
+        return () => cancelAnimationFrame(frame);
+      }
+    } catch {
+      // Ignore malformed or unavailable browser storage.
+    }
+  }, []);
 
   useEffect(() => {
     let frame: number | null = null;
@@ -600,22 +1009,31 @@ export function PhaseOneCanvas({
       decoded.forEach(({ id, source }) => {
         imageSourcesRef.current.set(id, source);
       });
-      setStats((current) => ({ ...current, persistenceState: "saved" }));
+      setStats((current) => ({
+        ...current,
+        persistenceState: "saved",
+        persistenceError: null,
+      }));
       scheduleRender();
     };
 
     void (async () => {
+      let localStrokes: Stroke[] = [];
+      let localObjects: CanvasImageObject[] = [];
+      let deletions: SceneDeletion[] = [];
+      let localError: unknown;
+
       try {
         const [storedStrokes, storedObjects, storedDeletions] =
           await Promise.all([
-          loadStrokes(projectId),
-          loadCanvasObjects(projectId),
-          loadSceneDeletions(projectId),
-        ]);
-        const localStrokes = storedStrokes.map((stroke) =>
+            loadStrokes(projectId),
+            loadCanvasObjects(projectId),
+            loadSceneDeletions(projectId),
+          ]);
+        localStrokes = storedStrokes.map((stroke) =>
           isUuid(stroke.id) ? stroke : { ...stroke, id: createUuid() },
         );
-        const localObjects = storedObjects.map((canvasObject) =>
+        localObjects = storedObjects.map((canvasObject) =>
           isUuid(canvasObject.id)
             ? canvasObject
             : {
@@ -625,7 +1043,7 @@ export function PhaseOneCanvas({
                 storagePath: undefined,
               },
         );
-        const deletions = storedDeletions.filter((deletion) =>
+        deletions = storedDeletions.filter((deletion) =>
           isUuid(deletion.entityId),
         );
         await Promise.all(
@@ -640,7 +1058,11 @@ export function PhaseOneCanvas({
             ),
         );
         await applyScene(localStrokes, localObjects);
+      } catch (error) {
+        localError = error;
+      }
 
+      try {
         const remote = await loadRemoteScene(supabase, remoteContext);
         const deletedStrokeIds = new Set(
           deletions
@@ -663,23 +1085,39 @@ export function PhaseOneCanvas({
             .map((canvasObject) => [canvasObject.id, canvasObject]),
         );
         localStrokes.forEach((stroke) => strokeMap.set(stroke.id, stroke));
-        localObjects.forEach((canvasObject) =>
-          objectMap.set(canvasObject.id, canvasObject),
-        );
+        localObjects.forEach((canvasObject) => {
+          const remoteObject = objectMap.get(canvasObject.id);
+          objectMap.set(
+            canvasObject.id,
+            remoteObject
+              ? {
+                  ...canvasObject,
+                  artifactId: remoteObject.artifactId,
+                  blob: remoteObject.blob,
+                  mimeType: remoteObject.mimeType,
+                  storagePath: remoteObject.storagePath,
+                }
+              : canvasObject,
+          );
+        });
         const mergedStrokes = Array.from(strokeMap.values());
         const mergedObjects = Array.from(objectMap.values());
 
-        await Promise.all([
-          clearStrokes(projectId),
-          clearCanvasObjects(projectId),
-        ]);
-        await Promise.all([
-          ...mergedStrokes.map((stroke) => saveStroke(projectId, stroke)),
-          ...mergedObjects.map((canvasObject) =>
-            saveCanvasObject(projectId, canvasObject),
-          ),
-        ]);
         await applyScene(mergedStrokes, mergedObjects);
+        try {
+          await Promise.all([
+            clearStrokes(projectId),
+            clearCanvasObjects(projectId),
+          ]);
+          await Promise.all([
+            ...mergedStrokes.map((stroke) => saveStroke(projectId, stroke)),
+            ...mergedObjects.map((canvasObject) =>
+              saveCanvasObject(projectId, canvasObject),
+            ),
+          ]);
+        } catch {
+          // The private remote scene remains usable when the local cache fails.
+        }
 
         const remoteStrokeIds = new Set(remote.strokes.map((stroke) => stroke.id));
         localStrokes
@@ -729,9 +1167,16 @@ export function PhaseOneCanvas({
             );
           });
         });
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          setStats((current) => ({ ...current, persistenceState: "error" }));
+          const localDetail = localError
+            ? ` Local cache: ${errorMessage(localError)}`
+            : "";
+          setStats((current) => ({
+            ...current,
+            persistenceState: "error",
+            persistenceError: `${errorMessage(error)}${localDetail}`,
+          }));
         }
       }
     })();
@@ -746,9 +1191,7 @@ export function PhaseOneCanvas({
       imageSources.forEach((source) => source.close());
 
       if (snapshotsRef.current) {
-        Object.values(snapshotsRef.current).forEach((url) =>
-          URL.revokeObjectURL(url),
-        );
+        revokeSnapshotUrls(snapshotsRef.current);
       }
     };
   }, [
@@ -1625,7 +2068,9 @@ export function PhaseOneCanvas({
   );
 
   const prepareContext = useCallback(async () => {
-    if (!selectionRef.current) {
+    const currentSelection = selectionRef.current;
+
+    if (!currentSelection) {
       return;
     }
 
@@ -1633,23 +2078,31 @@ export function PhaseOneCanvas({
 
     try {
       const bundle = await renderSnapshotBundle({
-        selection: selectionRef.current,
+        selection: currentSelection,
         strokes: strokesRef.current,
         objects: objectsRef.current,
         imageSources: imageSourcesRef.current,
         worldWidth: WORLD_WIDTH,
         worldHeight: WORLD_HEIGHT,
+        backgroundColor: canvasColorRef.current,
       });
+      const persisted = await persistSelectionContext(
+        supabase,
+        remoteContext,
+        currentSelection,
+        bundle,
+        `${Date.now().toString(36)}:${strokesRef.current.length}:${objectsRef.current.length}`,
+      );
       const nextSnapshots = {
         selectionUrl: URL.createObjectURL(bundle.selection),
         neighbourhoodUrl: URL.createObjectURL(bundle.neighbourhood),
         canvasUrl: URL.createObjectURL(bundle.canvas),
+        contextSnapshotId: persisted.id,
+        selectionId: persisted.selectionId,
       };
 
       if (snapshotsRef.current) {
-        Object.values(snapshotsRef.current).forEach((url) =>
-          URL.revokeObjectURL(url),
-        );
+        revokeSnapshotUrls(snapshotsRef.current);
       }
 
       snapshotsRef.current = nextSnapshots;
@@ -1658,7 +2111,326 @@ export function PhaseOneCanvas({
     } catch {
       setSnapshotState("error");
     }
+  }, [remoteContext, supabase]);
+
+  const sendPrompt = useCallback(async () => {
+    const contextSnapshotId = snapshotsRef.current?.contextSnapshotId;
+    const selectionId = snapshotsRef.current?.selectionId;
+    const trimmedPrompt = prompt.trim();
+
+    if (!contextSnapshotId || !selectionId || !trimmedPrompt || aiState === "streaming") {
+      return;
+    }
+
+    let messageSelectionUrl: string | undefined;
+    const currentSelectionUrl = snapshotsRef.current?.selectionUrl;
+    if (currentSelectionUrl) {
+      try {
+        const selectionBlob = await fetch(currentSelectionUrl).then((response) =>
+          response.blob(),
+        );
+        messageSelectionUrl = URL.createObjectURL(selectionBlob);
+        messageSelectionUrlsRef.current.add(messageSelectionUrl);
+      } catch {
+        // The durable thumbnail will be restored from private storage on reload.
+      }
+    }
+
+    const userMessage: ConversationMessage = {
+      id: createUuid(),
+      role: "user",
+      content: trimmedPrompt,
+      selectionId,
+      selectionUrl: messageSelectionUrl,
+    };
+    const assistantMessage: ConversationMessage = {
+      id: createUuid(),
+      role: "assistant",
+      content: "",
+      selectionId,
+    };
+    setMessages((current) => [...current, userMessage, assistantMessage]);
+    setPrompt("");
+    setAiError(null);
+    setAiState("streaming");
+
+    try {
+      const response = await fetch("/api/ai/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          canvasId,
+          selectionId,
+          contextSnapshotId,
+          conversationId,
+          prompt: trimmedPrompt,
+          includeNeighbourhood,
+          includeCanvas,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(data?.error ?? `AI request failed (${response.status}).`);
+      }
+
+      const nextConversationId = response.headers.get("x-conversation-id");
+      if (nextConversationId) {
+        setConversationId(nextConversationId);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("AI response stream was unavailable.");
+      }
+
+      const decoder = new TextDecoder();
+      let completeText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          completeText += decoder.decode();
+          break;
+        }
+        completeText += decoder.decode(value, { stream: true });
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessage.id
+              ? { ...message, content: completeText }
+              : message,
+          ),
+        );
+      }
+
+      if (!completeText.trim()) {
+        throw new Error("The AI returned an empty response.");
+      }
+    } catch (error) {
+      setMessages((current) =>
+        current.filter((message) => message.id !== assistantMessage.id),
+      );
+      setAiError(errorMessage(error));
+    } finally {
+      setAiState("idle");
+    }
+  }, [
+    aiState,
+    canvasId,
+    conversationId,
+    includeCanvas,
+    includeNeighbourhood,
+    projectId,
+    prompt,
+  ]);
+
+  const generateImage = useCallback(async () => {
+    const contextSnapshotId = snapshotsRef.current?.contextSnapshotId;
+    const selectionId = snapshotsRef.current?.selectionId;
+    const trimmedPrompt = prompt.trim();
+    if (!contextSnapshotId || !selectionId || !trimmedPrompt || aiState !== "idle") {
+      return;
+    }
+
+    let messageSelectionUrl: string | undefined;
+    const currentSelectionUrl = snapshotsRef.current?.selectionUrl;
+    if (currentSelectionUrl) {
+      try {
+        const selectionBlob = await fetch(currentSelectionUrl).then((response) =>
+          response.blob(),
+        );
+        messageSelectionUrl = URL.createObjectURL(selectionBlob);
+        messageSelectionUrlsRef.current.add(messageSelectionUrl);
+      } catch {
+        // The durable thumbnail will be restored from private storage on reload.
+      }
+    }
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: createUuid(),
+        role: "user",
+        content: trimmedPrompt,
+        selectionId,
+        selectionUrl: messageSelectionUrl,
+      },
+    ]);
+    setPrompt("");
+    setAiError(null);
+    setAiState("generating");
+    const abortController = new AbortController();
+    generationAbortRef.current = abortController;
+
+    try {
+      const response = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          canvasId,
+          selectionId,
+          contextSnapshotId,
+          conversationId,
+          prompt: trimmedPrompt,
+          includeNeighbourhood,
+          includeCanvas,
+          imageQuality,
+          imageSize,
+        }),
+        signal: abortController.signal,
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        conversationId?: string;
+        messageId?: string;
+        artifactId?: string;
+        storagePath?: string;
+        imageBase64?: string;
+        text?: string;
+      };
+      if (!response.ok || !data.imageBase64) {
+        throw new Error(data.error ?? `Image generation failed (${response.status}).`);
+      }
+
+      if (data.conversationId) {
+        setConversationId(data.conversationId);
+      }
+      const generatedImageUrl = URL.createObjectURL(
+        base64ImageToBlob(data.imageBase64),
+      );
+      messageSelectionUrlsRef.current.add(generatedImageUrl);
+      setMessages((current) => [
+        ...current,
+        {
+          id: data.messageId ?? createUuid(),
+          role: "assistant",
+          content: data.text ?? "Generated one visual alternative.",
+          selectionId,
+          generatedImageUrl,
+          artifactId: data.artifactId,
+          generatedStoragePath: data.storagePath,
+        },
+      ]);
+    } catch (error) {
+      setAiError(
+        abortController.signal.aborted
+          ? "Image generation cancelled."
+          : errorMessage(error),
+      );
+    } finally {
+      if (generationAbortRef.current === abortController) {
+        generationAbortRef.current = null;
+      }
+      setAiState("idle");
+    }
+  }, [
+    aiState,
+    canvasId,
+    conversationId,
+    includeCanvas,
+    includeNeighbourhood,
+    imageQuality,
+    imageSize,
+    projectId,
+    prompt,
+  ]);
+
+  const cancelImageGeneration = useCallback(() => {
+    generationAbortRef.current?.abort();
   }, []);
+
+  const addGeneratedImageToCanvas = useCallback(
+    async (message: ConversationMessage) => {
+      if (
+        !message.generatedImageUrl ||
+        !message.artifactId ||
+        !message.generatedStoragePath
+      ) {
+        setAiError("This generated image is missing its saved artifact details.");
+        return;
+      }
+
+      try {
+        const blob = await fetch(message.generatedImageUrl).then((response) =>
+          response.blob(),
+        );
+        const source = await decodeImageBlob(blob);
+        const maximumEdge = 720;
+        const scale = Math.min(
+          1,
+          maximumEdge / Math.max(source.width, source.height),
+        );
+        const width = source.width * scale;
+        const height = source.height * scale;
+        const activeBounds = selectionRef.current?.bounds;
+        const proposedX = activeBounds
+          ? activeBounds.x + activeBounds.width + 48
+          : (WORLD_WIDTH - width) / 2;
+        const canvasObject: CanvasImageObject = {
+          id: createUuid(),
+          type: "image",
+          x: Math.max(0, Math.min(WORLD_WIDTH - width, proposedX)),
+          y: Math.max(
+            0,
+            Math.min(
+              WORLD_HEIGHT - height,
+              activeBounds?.y ?? (WORLD_HEIGHT - height) / 2,
+            ),
+          ),
+          width,
+          height,
+          rotation: 0,
+          zIndex:
+            objectsRef.current.reduce(
+              (highest, item) => Math.max(highest, item.zIndex),
+              0,
+            ) + 1,
+          blob,
+          artifactId: message.artifactId,
+          storagePath: message.generatedStoragePath,
+          mimeType: "image/webp",
+          createdAt: Date.now(),
+        };
+
+        imageSourcesRef.current.set(canvasObject.id, source);
+        objectsRef.current = [...objectsRef.current, canvasObject];
+        historyRef.current.push({ type: "object-add", object: canvasObject });
+        redoRef.current = [];
+        selectedObjectIdRef.current = canvasObject.id;
+        setSelectedObjectId(canvasObject.id);
+        setTool("object");
+        setAiError(null);
+        invalidateSnapshots();
+        await saveCanvasObject(projectId, canvasObject);
+        queueRemoteSync(async () => {
+          const saved = await saveRemoteObject(
+            supabase,
+            remoteContext,
+            canvasObject,
+          );
+          objectsRef.current = objectsRef.current.map((current) =>
+            current.id === saved.id ? saved : current,
+          );
+          await saveCanvasObject(projectId, saved);
+        });
+        scheduleRender();
+      } catch (error) {
+        setAiError(errorMessage(error));
+      }
+    },
+    [
+      invalidateSnapshots,
+      projectId,
+      queueRemoteSync,
+      remoteContext,
+      scheduleRender,
+      supabase,
+    ],
+  );
 
   const clearDocument = useCallback(() => {
     const tombstones = Promise.all([
@@ -1679,7 +2451,6 @@ export function PhaseOneCanvas({
     selectedObjectIdRef.current = null;
     setSelection(null);
     setSelectedObjectId(null);
-    setStressLoaded(false);
     invalidateSnapshots();
 
     setStats((current) => ({ ...current, persistenceState: "saving" }));
@@ -1708,53 +2479,6 @@ export function PhaseOneCanvas({
     supabase,
   ]);
 
-  const loadStressDocument = useCallback(() => {
-    const generated: Stroke[] = [];
-    const columns = 100;
-    const rows = STRESS_STROKE_COUNT / columns;
-    const cellWidth = WORLD_WIDTH / columns;
-    const cellHeight = WORLD_HEIGHT / rows;
-
-    for (let index = 0; index < STRESS_STROKE_COUNT; index += 1) {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      const points: Point[] = [];
-
-      for (
-        let pointIndex = 0;
-        pointIndex < STRESS_POINTS_PER_STROKE;
-        pointIndex += 1
-      ) {
-        const progress = pointIndex / (STRESS_POINTS_PER_STROKE - 1);
-        points.push({
-          x: column * cellWidth + progress * cellWidth * 0.82,
-          y:
-            row * cellHeight +
-            cellHeight * 0.5 +
-            Math.sin(progress * Math.PI * 2 + row * 0.15) * cellHeight * 0.25,
-          pressure: 0.3 + progress * 0.5,
-          time: pointIndex,
-        });
-      }
-
-      generated.push({
-        id: `stress-${index}`,
-        points,
-        color: index % 8 === 0 ? "#716b63" : PEN_COLOR,
-        width: 2.4,
-        pressureEnabled: false,
-        createdAt: index,
-      });
-    }
-
-    strokesRef.current = generated;
-    historyRef.current = [];
-    redoRef.current = [];
-    invalidateSnapshots();
-    setStressLoaded(true);
-    scheduleRender();
-  }, [invalidateSnapshots, scheduleRender]);
-
   const handleToolChange = useCallback(
     (nextTool: Tool) => {
       setTool(nextTool);
@@ -1779,8 +2503,19 @@ export function PhaseOneCanvas({
             <h1>{projectTitle}</h1>
           </div>
         </div>
-        <div className="target-badge">
-          Private · local-first Supabase sync
+        <div className="project-header-actions">
+          <div className="target-badge">
+            Private · local-first Supabase sync
+          </div>
+          <button
+            aria-expanded={isSettingsOpen}
+            aria-label="Project settings"
+            className="project-settings-button"
+            onClick={() => setIsSettingsOpen((current) => !current)}
+            type="button"
+          >
+            <Settings aria-hidden="true" strokeWidth={1.5} />
+          </button>
         </div>
       </header>
 
@@ -1828,37 +2563,55 @@ export function PhaseOneCanvas({
           <div className="gesture-hint">
             Pencil uses the active tool · two fingers pan and zoom
           </div>
-          {selection || selectedObjectId ? (
+          {selectedObjectId ? (
             <div className="contextual-actions">
-              {selection ? (
-                <button onClick={prepareContext} type="button">
-                  Prepare context
-                </button>
-              ) : null}
-              {selectedObjectId ? (
-                <button
-                  className="danger"
-                  onClick={deleteSelectedObject}
-                  type="button"
-                >
-                  Delete image
-                </button>
-              ) : null}
+              <button
+                className="danger"
+                onClick={deleteSelectedObject}
+                type="button"
+              >
+                Delete image
+              </button>
             </div>
           ) : null}
         </div>
 
         <ContextPanel
+          aiError={aiError}
+          aiState={aiState}
+          canvasColor={canvasColor}
           dpr={dpr}
           hasSelection={selection !== null}
+          imageQuality={imageQuality}
+          imageSize={imageSize}
+          includeCanvas={includeCanvas}
+          includeNeighbourhood={includeNeighbourhood}
+          isSettingsOpen={isSettingsOpen}
+          messages={messages}
+          onAddGeneratedImage={addGeneratedImageToCanvas}
+          onApplyUiConfiguration={applyUiConfiguration}
+          onCancelGeneration={cancelImageGeneration}
+          onCanvasColorChange={changeCanvasColor}
           onClear={clearDocument}
           onDprChange={setDpr}
-          onLoadStress={loadStressDocument}
+          onDeleteUiConfiguration={deleteUiConfiguration}
+          onIncludeCanvasChange={setIncludeCanvas}
+          onIncludeNeighbourhoodChange={setIncludeNeighbourhood}
+          onImageQualityChange={setImageQuality}
+          onImageSizeChange={setImageSize}
+          onGenerateImage={generateImage}
           onPrepareContext={prepareContext}
+          onPromptChange={setPrompt}
+          onSaveUiConfiguration={saveUiConfiguration}
+          onSendPrompt={sendPrompt}
+          onSettingsClose={() => setIsSettingsOpen(false)}
+          onThemeModeChange={changeThemeMode}
+          prompt={prompt}
+          savedUiConfigurations={savedUiConfigurations}
           snapshotState={snapshotState}
           snapshots={snapshots}
           stats={stats}
-          stressLoaded={stressLoaded}
+          themeMode={themeMode}
         />
       </section>
     </main>

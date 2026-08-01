@@ -8,6 +8,30 @@
   --accent-soft: #e9f0ff;
   --danger: #a54232;
   --success: #38744d;
+  --control: #efede8;
+  --control-subtle: #f3f1ec;
+  --raised: #ffffff;
+  --primary: #242220;
+  --on-primary: #ffffff;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --ink: #f2efe9;
+  --muted: #aaa39b;
+  --line: #4a4641;
+  --surface: #191817;
+  --panel: #242220;
+  --accent: #78a3ff;
+  --accent-soft: #263552;
+  --danger: #ef8f80;
+  --success: #78bd8f;
+  --control: #34312e;
+  --control-subtle: #2e2b29;
+  --raised: #302d2a;
+  --primary: #f2efe9;
+  --on-primary: #191817;
+  color-scheme: dark;
 }
 
 * {
@@ -84,11 +108,39 @@ button {
 }
 
 .target-badge {
-  background: #efede8;
+  background: var(--control);
   border-radius: 999px;
   color: #57524d;
   font-size: 12px;
   padding: 8px 12px;
+}
+
+.project-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.project-settings-button {
+  appearance: none;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--ink);
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  padding: 0;
+  touch-action: manipulation;
+  width: 40px;
+  -webkit-appearance: none;
+}
+
+.project-settings-button svg {
+  height: 24px;
+  width: 24px;
 }
 
 .prototype-workspace {
@@ -136,6 +188,11 @@ button {
 .brush-popover button:focus-visible,
 .brush-popover input:focus-visible,
 .diagnostic-actions button:focus-visible,
+.settings-button:focus-visible,
+.canvas-settings-popover button:focus-visible,
+.project-settings-button:focus-visible,
+.prompt-composer button:focus-visible,
+.prompt-composer textarea:focus-visible,
 select:focus-visible {
   outline: 3px solid rgba(36, 104, 242, 0.3);
   outline-offset: 2px;
@@ -169,7 +226,7 @@ select:focus-visible {
 }
 
 .brush-popover {
-  background: rgba(255, 254, 250, 0.98);
+  background: color-mix(in srgb, var(--panel) 98%, transparent);
   border: 1px solid var(--line);
   border-radius: 16px;
   box-shadow: 0 18px 55px rgba(36, 34, 32, 0.2);
@@ -188,6 +245,7 @@ select:focus-visible {
 .brush-popover-header {
   align-items: center;
   display: flex;
+  gap: 12px;
   justify-content: space-between;
 }
 
@@ -196,9 +254,39 @@ select:focus-visible {
   margin: 3px 0 0;
 }
 
-.brush-popover-header button {
+.brush-popover-actions {
   align-items: center;
-  background: #efede8;
+  display: flex;
+  gap: 8px;
+}
+
+.brush-layout-toggle {
+  background: var(--control);
+  border-radius: 8px;
+  display: flex;
+  padding: 3px;
+}
+
+.brush-layout-toggle button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  min-height: 30px;
+  padding: 0 8px;
+  touch-action: manipulation;
+}
+
+.brush-layout-toggle button[aria-pressed="true"] {
+  background: var(--raised);
+  box-shadow: 0 1px 4px rgba(36, 34, 32, 0.14);
+  color: var(--ink);
+}
+
+.brush-close-button {
+  align-items: center;
+  background: var(--control);
   border: 0;
   border-radius: 50%;
   cursor: pointer;
@@ -212,9 +300,136 @@ select:focus-visible {
   width: 36px;
 }
 
+.brush-popover.horizontal {
+  align-items: center;
+  gap: 8px;
+  grid-template-areas: "preview size colour pressure actions";
+  grid-template-columns: 48px 98px minmax(216px, 1fr) 70px auto;
+  left: calc(50% - 104px);
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 5px 8px;
+  top: max(82px, calc(env(safe-area-inset-top) + 76px));
+  transform: translateX(-50%);
+  width: min(700px, calc(100vw - 352px));
+}
+
+.brush-popover.horizontal .brush-popover-header {
+  border-left: 1px solid var(--line);
+  gap: 0;
+  grid-area: actions;
+  padding-left: 8px;
+}
+
+.brush-popover.horizontal .brush-popover-header > div:first-child {
+  display: none;
+}
+
+.brush-popover.horizontal .brush-popover-actions {
+  gap: 5px;
+}
+
+.brush-popover.horizontal .brush-layout-toggle {
+  padding: 2px;
+}
+
+.brush-popover.horizontal .brush-layout-toggle button {
+  font-size: 9px;
+  min-height: 24px;
+  padding: 0 5px;
+}
+
+.brush-popover.horizontal .brush-close-button {
+  font-size: 18px;
+  height: 26px;
+  width: 26px;
+}
+
+.brush-popover.horizontal .brush-preview {
+  border-radius: 8px;
+  grid-area: preview;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 7px;
+}
+
+.brush-popover.horizontal .brush-size-control {
+  border-left: 1px solid var(--line);
+  grid-area: size;
+  padding-left: 8px;
+}
+
+.brush-popover.horizontal .brush-colour-control {
+  border-left: 1px solid var(--line);
+  grid-area: colour;
+  padding-left: 8px;
+}
+
+.brush-popover.horizontal .brush-control {
+  align-content: center;
+  gap: 2px;
+}
+
+.brush-popover.horizontal .brush-control-label {
+  font-size: 9px;
+}
+
+.brush-popover.horizontal .brush-control input[type="range"] {
+  height: 18px;
+}
+
+.brush-popover.horizontal .brush-colour-row {
+  gap: 5px;
+  grid-template-columns: 32px minmax(0, 1fr);
+}
+
+.brush-popover.horizontal .brush-colour-row input[type="color"] {
+  height: 24px;
+  width: 24px;
+}
+
+.brush-popover.horizontal .brush-swatches {
+  gap: 5px;
+  grid-template-columns: repeat(10, 16px);
+}
+
+.brush-popover.horizontal .brush-swatch {
+  height: 16px;
+  width: 16px;
+}
+
+.brush-popover.horizontal .brush-pressure-toggle {
+  border-left: 1px solid var(--line);
+  border-top: 0;
+  display: grid;
+  gap: 3px;
+  grid-area: pressure;
+  justify-items: center;
+  padding-left: 8px;
+  padding-top: 0;
+}
+
+.brush-popover.horizontal .brush-pressure-toggle span {
+  display: block;
+}
+
+.brush-popover.horizontal .brush-pressure-toggle strong {
+  font-size: 9px;
+}
+
+.brush-popover.horizontal .brush-pressure-toggle small {
+  display: none;
+}
+
+.brush-popover.horizontal .brush-pressure-toggle input {
+  height: 18px;
+  width: 18px;
+}
+
 .brush-preview {
   align-items: center;
-  background: #efede8;
+  background: var(--control);
   border-radius: 12px;
   display: flex;
   height: 58px;
@@ -344,7 +559,7 @@ select:focus-visible {
 }
 
 .canvas-surface {
-  background: #e9e7e2;
+  background: var(--surface);
   min-height: 0;
   overflow: hidden;
   position: relative;
@@ -378,10 +593,10 @@ select:focus-visible {
 }
 
 .contextual-actions button {
-  background: var(--ink);
+  background: var(--primary);
   border: 0;
   border-radius: 9px;
-  color: white;
+  color: var(--on-primary);
   cursor: pointer;
   min-height: 42px;
   padding: 0 16px;
@@ -393,8 +608,8 @@ select:focus-visible {
 }
 
 .gesture-hint {
-  background: rgba(255, 254, 250, 0.9);
-  border: 1px solid rgba(216, 212, 205, 0.9);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  border: 1px solid var(--line);
   border-radius: 999px;
   bottom: 14px;
   color: var(--muted);
@@ -411,10 +626,128 @@ select:focus-visible {
   border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  overflow-y: auto;
+  gap: 12px;
+  box-sizing: border-box;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
   padding: 18px 18px max(18px, env(safe-area-inset-bottom));
+  position: relative;
   z-index: 3;
+}
+
+.panel-heading,
+.settings-title,
+.panel-sync-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.settings-button,
+.settings-title button {
+  align-items: center;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  display: inline-flex;
+  justify-content: center;
+}
+
+.settings-button {
+  height: 38px;
+  width: 38px;
+}
+
+.settings-button svg {
+  fill: currentColor;
+  height: 20px;
+  width: 20px;
+}
+
+.canvas-settings-popover {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(36, 34, 32, 0.18);
+  display: grid;
+  gap: 14px;
+  left: 14px;
+  max-height: calc(100% - 82px);
+  overflow-y: auto;
+  padding: 14px;
+  position: absolute;
+  right: 14px;
+  top: 66px;
+  z-index: 8;
+}
+
+.settings-title button {
+  font-size: 20px;
+  height: 32px;
+  width: 32px;
+}
+
+.settings-clear-button {
+  background: var(--raised);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  color: var(--danger);
+  min-height: 40px;
+}
+
+.context-image-settings {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 10px;
+}
+
+.context-image-settings legend {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 4px;
+}
+
+.context-image-settings label {
+  align-items: center;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.context-image-settings .settings-select-row {
+  align-items: stretch;
+  display: grid;
+  gap: 5px;
+}
+
+.settings-select-row select {
+  min-height: 38px;
+  width: 100%;
+}
+
+.context-image-settings input {
+  height: 18px;
+  width: 18px;
+}
+
+.panel-sync-row {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.panel-scroll-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .metric-grid {
@@ -425,7 +758,7 @@ select:focus-visible {
 }
 
 .metric-grid div {
-  background: #f3f1ec;
+  background: var(--control-subtle);
   border-radius: 8px;
   padding: 10px;
 }
@@ -464,11 +797,95 @@ select:focus-visible {
 }
 
 .diagnostic-section select {
-  background: white;
+  background: var(--raised);
   border: 1px solid var(--line);
   border-radius: 7px;
   min-height: 40px;
   padding: 0 10px;
+}
+
+.canvas-colour-setting {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.canvas-colour-setting > label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.canvas-colour-setting > div {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.canvas-colour-setting input {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  height: 40px;
+  padding: 4px;
+  width: 58px;
+}
+
+.canvas-colour-setting output {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.ui-configuration-settings {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.ui-configuration-settings > label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ui-configuration-settings select,
+.ui-configuration-settings input {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  min-height: 40px;
+  min-width: 0;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.ui-configuration-save-row {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.ui-configuration-settings button {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 7px;
+  color: var(--on-primary);
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.ui-configuration-settings button.delete-ui-configuration {
+  background: var(--raised);
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.ui-configuration-settings button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .sync-state {
@@ -491,10 +908,10 @@ select:focus-visible {
 }
 
 .diagnostic-actions button {
-  background: var(--ink);
-  border: 1px solid var(--ink);
+  background: var(--primary);
+  border: 1px solid var(--primary);
   border-radius: 8px;
-  color: white;
+  color: var(--on-primary);
   cursor: pointer;
   min-height: 42px;
   padding: 0 12px;
@@ -507,7 +924,7 @@ select:focus-visible {
 }
 
 .diagnostic-actions button.secondary {
-  background: white;
+  background: var(--raised);
   border-color: var(--line);
   color: var(--ink);
 }
@@ -520,7 +937,7 @@ select:focus-visible {
 }
 
 .snapshot-card {
-  background: #f3f1ec;
+  background: var(--control-subtle);
   border-radius: 8px;
   margin: 0;
   overflow: hidden;
@@ -545,6 +962,198 @@ select:focus-visible {
   color: var(--danger);
   font-size: 12px;
   margin: 0;
+}
+
+.conversation-section {
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding-top: 16px;
+}
+
+.conversation-messages {
+  align-content: start;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 9px;
+  min-height: 140px;
+}
+
+.conversation-message {
+  border-radius: 10px;
+  padding: 10px 11px;
+}
+
+.conversation-message.user {
+  background: var(--accent-soft);
+  margin-left: 18px;
+}
+
+.conversation-message.assistant {
+  background: var(--control);
+  margin-right: 18px;
+}
+
+.conversation-message strong {
+  display: block;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.conversation-context {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.conversation-context img {
+  background: white;
+  border: 1px solid rgba(36, 34, 32, 0.12);
+  border-radius: 6px;
+  height: 52px;
+  object-fit: contain;
+  width: 70px;
+}
+
+.conversation-context figcaption {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.generated-message-image {
+  background: white;
+  border-radius: 8px;
+  display: block;
+  height: auto;
+  margin-top: 9px;
+  max-height: 260px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.generated-image-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.generated-image-button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: grid;
+  gap: 5px;
+  margin-top: 9px;
+  padding: 0;
+  text-align: left;
+  text-decoration: none;
+  touch-action: manipulation;
+  width: 100%;
+}
+
+.generated-image-button span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.add-generated-button {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  color: var(--on-primary);
+  min-height: 38px;
+  width: 100%;
+}
+
+.conversation-message p,
+.conversation-empty {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.conversation-empty {
+  color: var(--muted);
+}
+
+.prompt-composer {
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  width: 100%;
+}
+
+.prompt-composer label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prompt-composer textarea {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  box-sizing: border-box;
+  display: block;
+  flex: 0 0 auto;
+  font: inherit;
+  line-height: 1.4;
+  min-height: 82px;
+  padding: 10px;
+  resize: vertical;
+  width: 100%;
+}
+
+.prompt-composer button {
+  align-self: start;
+  background: var(--primary);
+  border: 0;
+  border-radius: 8px;
+  color: var(--on-primary);
+  flex: 0 0 42px;
+  height: 42px;
+  min-height: 42px;
+  width: 100%;
+}
+
+.prompt-composer button.secondary {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+@keyframes generation-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(36, 104, 242, 0.2);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(36, 104, 242, 0);
+    transform: scale(0.985);
+  }
+}
+
+.prompt-composer button.is-generating {
+  animation: generation-pulse 1.2s ease-in-out infinite;
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 1;
+}
+
+.prompt-composer button:disabled,
+.prompt-composer textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .visually-hidden {
@@ -619,7 +1228,7 @@ select:focus-visible {
 
 .auth-card input,
 .new-project-card input {
-  background: white;
+  background: var(--raised);
   border: 1px solid var(--line);
   border-radius: 9px;
   min-height: 46px;
@@ -629,10 +1238,10 @@ select:focus-visible {
 .auth-card button,
 .new-project-card button,
 .secondary-button {
-  background: var(--ink);
-  border: 1px solid var(--ink);
+  background: var(--primary);
+  border: 1px solid var(--primary);
   border-radius: 9px;
-  color: white;
+  color: var(--on-primary);
   cursor: pointer;
   min-height: 44px;
   padding: 0 15px;
@@ -661,7 +1270,7 @@ select:focus-visible {
 }
 
 .secondary-button {
-  background: white;
+  background: var(--raised);
   border-color: var(--line);
   color: var(--ink);
 }
@@ -722,6 +1331,11 @@ select:focus-visible {
 
   .diagnostics-panel {
     display: none;
+  }
+
+  .brush-popover.horizontal {
+    left: calc(50% + 32px);
+    width: min(720px, calc(100vw - 88px));
   }
 }
 

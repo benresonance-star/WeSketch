@@ -7,7 +7,7 @@ import type {
   Stroke,
 } from "@/types/canvas";
 
-type SnapshotBundle = {
+export type SnapshotBundle = {
   selection: Blob;
   neighbourhood: Blob;
   canvas: Blob;
@@ -20,6 +20,7 @@ type SnapshotInput = {
   imageSources: Map<string, CanvasImageSource>;
   worldWidth: number;
   worldHeight: number;
+  backgroundColor: string;
 };
 
 function outputSizeForRegion(
@@ -77,7 +78,7 @@ async function renderSnapshot(
       objects: input.objects,
       imageSources: input.imageSources,
     },
-    "#fbfaf6",
+    input.backgroundColor,
   );
 
   if (applyLassoMask && input.selection.type === "lasso") {

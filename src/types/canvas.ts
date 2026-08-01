@@ -65,6 +65,32 @@ export type SnapshotPreview = {
   selectionUrl: string;
   neighbourhoodUrl: string;
   canvasUrl: string;
+  contextSnapshotId?: string;
+  selectionId?: string;
+};
+
+export type ConversationMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  selectionId?: string;
+  selectionUrl?: string;
+  generatedImageUrl?: string;
+  artifactId?: string;
+  generatedStoragePath?: string;
+};
+
+export type ImageGenerationQuality = "low" | "medium" | "high";
+export type ImageGenerationSize =
+  | "1024x1024"
+  | "1536x1024"
+  | "1024x1536";
+export type ThemeMode = "light" | "dark";
+export type SavedUiConfiguration = {
+  id: string;
+  name: string;
+  themeMode: ThemeMode;
+  canvasColor: string;
 };
 
 export type PrototypeStats = {
@@ -73,4 +99,5 @@ export type PrototypeStats = {
   pointerCancelCount: number;
   renderDurationMs: number;
   persistenceState: "loading" | "saved" | "saving" | "error";
+  persistenceError: string | null;
 };

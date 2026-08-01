@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { createProjectAction, signOutAction } from "@/app/actions";
@@ -52,7 +51,7 @@ export default async function HomePage() {
 
         <div className="project-grid">
           {projects?.map((project) => (
-            <Link
+            <a
               className="project-card"
               href={`/projects/${project.id}`}
               key={project.id}
@@ -62,7 +61,7 @@ export default async function HomePage() {
                 Updated{" "}
                 {new Date(project.updated_at).toLocaleDateString("en-AU")}
               </small>
-            </Link>
+            </a>
           ))}
           {projects?.length === 0 ? (
             <p className="empty-state">

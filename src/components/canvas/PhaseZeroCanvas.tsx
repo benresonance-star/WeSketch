@@ -73,6 +73,7 @@ const INITIAL_STATS: PrototypeStats = {
   pointerCancelCount: 0,
   renderDurationMs: 0,
   persistenceState: "loading",
+  persistenceError: null,
 };
 
 function averagePressure(points: Point[]): number {

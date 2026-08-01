@@ -102,6 +102,13 @@ function drawObject(
   if (!imageSource) {
     return;
   }
+  if (
+    typeof ImageBitmap !== "undefined" &&
+    imageSource instanceof ImageBitmap &&
+    (imageSource.width === 0 || imageSource.height === 0)
+  ) {
+    return;
+  }
 
   context.save();
   context.translate(

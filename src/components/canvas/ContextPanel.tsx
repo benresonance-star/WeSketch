@@ -1,8 +1,14 @@
 import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 
 import type {
+  ConversationMessage,
+  ImageGenerationQuality,
+  ImageGenerationSize,
   PrototypeStats,
+  SavedUiConfiguration,
   SnapshotPreview,
+  ThemeMode,
 } from "@/types/canvas";
 
 type SnapshotState = "idle" | "preparing" | "ready" | "error";
@@ -10,13 +16,38 @@ type SnapshotState = "idle" | "preparing" | "ready" | "error";
 type ContextPanelProps = {
   stats: PrototypeStats;
   dpr: number;
-  stressLoaded: boolean;
   snapshots: SnapshotPreview | null;
   snapshotState: SnapshotState;
   hasSelection: boolean;
+  messages: ConversationMessage[];
+  prompt: string;
+  aiState: "idle" | "streaming" | "generating";
+  aiError: string | null;
+  includeNeighbourhood: boolean;
+  includeCanvas: boolean;
+  imageQuality: ImageGenerationQuality;
+  imageSize: ImageGenerationSize;
+  isSettingsOpen: boolean;
+  canvasColor: string;
+  themeMode: ThemeMode;
+  savedUiConfigurations: SavedUiConfiguration[];
   onDprChange: (value: number) => void;
+  onIncludeNeighbourhoodChange: (value: boolean) => void;
+  onIncludeCanvasChange: (value: boolean) => void;
+  onImageQualityChange: (value: ImageGenerationQuality) => void;
+  onImageSizeChange: (value: ImageGenerationSize) => void;
+  onCanvasColorChange: (value: string) => void;
+  onThemeModeChange: (value: ThemeMode) => void;
+  onApplyUiConfiguration: (configuration: SavedUiConfiguration) => void;
+  onDeleteUiConfiguration: (id: string) => void;
+  onSaveUiConfiguration: (name: string) => string | null;
+  onSettingsClose: () => void;
   onPrepareContext: () => void;
-  onLoadStress: () => void;
+  onPromptChange: (value: string) => void;
+  onSendPrompt: () => void;
+  onGenerateImage: () => void;
+  onCancelGeneration: () => void;
+  onAddGeneratedImage: (message: ConversationMessage) => void;
   onClear: () => void;
 };
 
@@ -38,63 +69,271 @@ function SnapshotImage({ label, src }: { label: string; src: string }) {
 export function ContextPanel({
   stats,
   dpr,
-  stressLoaded,
   snapshots,
   snapshotState,
   hasSelection,
+  messages,
+  prompt,
+  aiState,
+  aiError,
+  includeNeighbourhood,
+  includeCanvas,
+  imageQuality,
+  imageSize,
+  isSettingsOpen,
+  canvasColor,
+  themeMode,
+  savedUiConfigurations,
   onDprChange,
+  onIncludeNeighbourhoodChange,
+  onIncludeCanvasChange,
+  onImageQualityChange,
+  onImageSizeChange,
+  onCanvasColorChange,
+  onThemeModeChange,
+  onApplyUiConfiguration,
+  onDeleteUiConfiguration,
+  onSaveUiConfiguration,
+  onSettingsClose,
   onPrepareContext,
-  onLoadStress,
+  onPromptChange,
+  onSendPrompt,
+  onGenerateImage,
+  onCancelGeneration,
+  onAddGeneratedImage,
   onClear,
 }: ContextPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [configurationName, setConfigurationName] = useState("");
+  const [selectedConfigurationId, setSelectedConfigurationId] = useState("");
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      panelRef.current?.scrollTo({ top: 0 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   return (
     <aside className="diagnostics-panel">
-      <div>
-        <p className="eyebrow">Durable sketch core</p>
-        <h2>Context laboratory</h2>
-      </div>
+      <header className="panel-heading">
+        <div>
+          <p className="eyebrow">Selection conversation</p>
+          <h2>Design partner</h2>
+        </div>
+      </header>
 
-      <dl className="metric-grid">
-        <div>
-          <dt>Strokes</dt>
-          <dd>{stats.strokeCount.toLocaleString("en-US")}</dd>
-        </div>
-        <div>
-          <dt>Points</dt>
-          <dd>{stats.pointCount.toLocaleString("en-US")}</dd>
-        </div>
-        <div>
-          <dt>Render</dt>
-          <dd>{stats.renderDurationMs.toFixed(1)} ms</dd>
-        </div>
-        <div>
-          <dt>Cancels</dt>
-          <dd>{stats.pointerCancelCount}</dd>
-        </div>
-      </dl>
+      {isSettingsOpen ? (
+        <section className="canvas-settings-popover" aria-label="Canvas settings">
+          <div className="settings-title">
+            <strong>Canvas settings</strong>
+            <button
+              aria-label="Close canvas settings"
+              onClick={onSettingsClose}
+              type="button"
+            >
+              ×
+            </button>
+          </div>
+          <dl className="metric-grid">
+            <div>
+              <dt>Strokes</dt>
+              <dd>{stats.strokeCount.toLocaleString("en-US")}</dd>
+            </div>
+            <div>
+              <dt>Points</dt>
+              <dd>{stats.pointCount.toLocaleString("en-US")}</dd>
+            </div>
+            <div>
+              <dt>Render</dt>
+              <dd>{stats.renderDurationMs.toFixed(1)} ms</dd>
+            </div>
+            <div>
+              <dt>Cancels</dt>
+              <dd>{stats.pointerCancelCount}</dd>
+            </div>
+          </dl>
+          <div className="diagnostic-section">
+            <label htmlFor="dpr-select">Canvas pixel ratio</label>
+            <select
+              id="dpr-select"
+              onChange={(event) => onDprChange(Number(event.target.value))}
+              value={dpr}
+            >
+              <option value={1}>1×</option>
+              <option value={1.5}>1.5× recommended</option>
+              <option value={2}>2× stress</option>
+            </select>
+          </div>
+          <div className="diagnostic-section">
+            <label htmlFor="theme-mode">Interface theme</label>
+            <select
+              id="theme-mode"
+              onChange={(event) =>
+                onThemeModeChange(event.target.value as ThemeMode)
+              }
+              value={themeMode}
+            >
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+          <div className="canvas-colour-setting">
+            <label htmlFor="canvas-colour">Canvas colour</label>
+            <div>
+              <input
+                id="canvas-colour"
+                onChange={(event) => onCanvasColorChange(event.target.value)}
+                type="color"
+                value={canvasColor}
+              />
+              <output htmlFor="canvas-colour">
+                {canvasColor.toUpperCase()}
+              </output>
+            </div>
+          </div>
+          <div className="ui-configuration-settings">
+            <label htmlFor="saved-ui-configuration">
+              Saved UI configuration
+            </label>
+            <select
+              id="saved-ui-configuration"
+              onChange={(event) => {
+                const id = event.target.value;
+                setSelectedConfigurationId(id);
+                const configuration = savedUiConfigurations.find(
+                  (item) => item.id === id,
+                );
+                if (configuration) {
+                  onApplyUiConfiguration(configuration);
+                }
+              }}
+              value={selectedConfigurationId}
+            >
+              <option value="">Choose a saved configuration</option>
+              {savedUiConfigurations.map((configuration) => (
+                <option key={configuration.id} value={configuration.id}>
+                  {configuration.name}
+                </option>
+              ))}
+            </select>
+            <div className="ui-configuration-save-row">
+              <input
+                aria-label="Configuration name"
+                maxLength={40}
+                onChange={(event) => setConfigurationName(event.target.value)}
+                placeholder="Configuration name"
+                type="text"
+                value={configurationName}
+              />
+              <button
+                disabled={!configurationName.trim()}
+                onClick={() => {
+                  const savedId = onSaveUiConfiguration(configurationName);
+                  if (savedId) {
+                    setSelectedConfigurationId(savedId);
+                    setConfigurationName("");
+                  }
+                }}
+                type="button"
+              >
+                Save current
+              </button>
+            </div>
+            <button
+              className="delete-ui-configuration"
+              disabled={!selectedConfigurationId}
+              onClick={() => {
+                onDeleteUiConfiguration(selectedConfigurationId);
+                setSelectedConfigurationId("");
+              }}
+              type="button"
+            >
+              Delete selected
+            </button>
+          </div>
+          <fieldset className="context-image-settings">
+            <legend>Images sent to AI</legend>
+            <label>
+              <input checked disabled type="checkbox" />
+              Selection
+            </label>
+            <label>
+              <input
+                checked={includeNeighbourhood}
+                onChange={(event) =>
+                  onIncludeNeighbourhoodChange(event.target.checked)
+                }
+                type="checkbox"
+              />
+              Neighbourhood
+            </label>
+            <label>
+              <input
+                checked={includeCanvas}
+                onChange={(event) => onIncludeCanvasChange(event.target.checked)}
+                type="checkbox"
+              />
+              Whole canvas
+            </label>
+          </fieldset>
+          <fieldset className="context-image-settings">
+            <legend>Image generation</legend>
+            <label className="settings-select-row">
+              Quality
+              <select
+                onChange={(event) =>
+                  onImageQualityChange(
+                    event.target.value as ImageGenerationQuality,
+                  )
+                }
+                value={imageQuality}
+              >
+                <option value="low">Fast draft</option>
+                <option value="medium">Balanced</option>
+                <option value="high">High detail · slow</option>
+              </select>
+            </label>
+            <label className="settings-select-row">
+              Shape
+              <select
+                onChange={(event) =>
+                  onImageSizeChange(event.target.value as ImageGenerationSize)
+                }
+                value={imageSize}
+              >
+                <option value="1024x1024">Square · fastest</option>
+                <option value="1536x1024">Landscape</option>
+                <option value="1024x1536">Portrait</option>
+              </select>
+            </label>
+          </fieldset>
+          <div className="diagnostic-section">
+            <p>
+              Strokes and image placements are cached locally and synchronized
+              to private Supabase storage.
+            </p>
+            {stats.persistenceError ? (
+              <p className="error-note">{stats.persistenceError}</p>
+            ) : null}
+          </div>
+          <button
+            className="settings-clear-button"
+            onClick={() => {
+              onClear();
+              onSettingsClose();
+            }}
+            type="button"
+          >
+            Clear canvas
+          </button>
+        </section>
+      ) : null}
 
-      <div className="diagnostic-section">
+      <div className="panel-sync-row">
         <span className={`sync-state ${stats.persistenceState}`}>
           Project sync: {stats.persistenceState}
         </span>
-        <p>
-          User strokes and image placements are cached locally and synchronized
-          to private Supabase storage. Selections remain transient until an AI
-          action uses them.
-        </p>
-      </div>
-
-      <div className="diagnostic-section">
-        <label htmlFor="dpr-select">Canvas pixel ratio</label>
-        <select
-          id="dpr-select"
-          onChange={(event) => onDprChange(Number(event.target.value))}
-          value={dpr}
-        >
-          <option value={1}>1×</option>
-          <option value={1.5}>1.5× recommended</option>
-          <option value={2}>2× stress</option>
-        </select>
       </div>
 
       <div className="diagnostic-actions">
@@ -107,34 +346,140 @@ export function ContextPanel({
             ? "Preparing context…"
             : "Prepare AI context"}
         </button>
-        <button className="secondary" onClick={onLoadStress} type="button">
-          Load 10k-stroke test
-        </button>
-        <button className="secondary" onClick={onClear} type="button">
-          Clear canvas
-        </button>
       </div>
 
       {snapshotState === "error" ? (
-        <p className="error-note">Could not prepare context snapshots.</p>
-      ) : null}
-
-      {snapshots ? (
-        <div className="snapshot-list">
-          <SnapshotImage label="Selection" src={snapshots.selectionUrl} />
-          <SnapshotImage
-            label="Neighbourhood"
-            src={snapshots.neighbourhoodUrl}
-          />
-          <SnapshotImage label="Whole canvas" src={snapshots.canvasUrl} />
-        </div>
-      ) : null}
-
-      {stressLoaded ? (
-        <p className="stress-note">
-          Stress strokes are memory-only and disappear on reload.
+        <p className="error-note">
+          Could not render or privately save the context snapshots.
         </p>
       ) : null}
+
+      {snapshotState === "ready" && snapshots?.contextSnapshotId ? (
+        <p className="context-ready-note">Private AI context saved.</p>
+      ) : null}
+
+      <div className="panel-scroll-content" ref={panelRef}>
+        {snapshots ? (
+          <div className="snapshot-list">
+            <SnapshotImage label="Selection" src={snapshots.selectionUrl} />
+            <SnapshotImage
+              label="Neighbourhood"
+              src={snapshots.neighbourhoodUrl}
+            />
+            <SnapshotImage label="Whole canvas" src={snapshots.canvasUrl} />
+          </div>
+        ) : null}
+
+        <section className="conversation-section" aria-label="AI conversation">
+          <div className="conversation-messages" aria-live="polite">
+            {messages.length > 0 ? (
+              messages.map((message) => (
+                <article
+                  className={`conversation-message ${message.role}`}
+                  key={message.id}
+                >
+                  <strong>
+                    {message.role === "user" ? "You" : "WeSketch"}
+                  </strong>
+                  {message.role === "user" && message.selectionUrl ? (
+                    <figure className="conversation-context">
+                      <Image
+                        alt="Selection referenced by this message"
+                        height={72}
+                        src={message.selectionUrl}
+                        unoptimized
+                        width={96}
+                      />
+                      <figcaption>Selected context</figcaption>
+                    </figure>
+                  ) : null}
+                  <p>{message.content}</p>
+                  {message.generatedImageUrl ? (
+                    <div className="generated-image-actions">
+                      <a
+                      aria-label="Open generated image preview"
+                      className="generated-image-button"
+                        href={message.generatedImageUrl}
+                        rel="noopener noreferrer"
+                        target="_blank"
+                      >
+                        <Image
+                          alt="AI-generated visual alternative"
+                          className="generated-message-image"
+                          height={240}
+                          src={message.generatedImageUrl}
+                          unoptimized
+                          width={240}
+                        />
+                        <span>Tap for full-size preview</span>
+                      </a>
+                      <button
+                        className="add-generated-button"
+                        onClick={() => onAddGeneratedImage(message)}
+                        type="button"
+                      >
+                        Add to canvas
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              ))
+            ) : (
+              <p className="conversation-empty">
+                Prepare a selection, then ask for observations or design
+                alternatives.
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <form
+        className="prompt-composer"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSendPrompt();
+        }}
+      >
+        <label htmlFor="selection-prompt">Ask about this selection</label>
+        <textarea
+          disabled={!snapshots?.contextSnapshotId || aiState !== "idle"}
+          id="selection-prompt"
+          maxLength={4000}
+          onChange={(event) => onPromptChange(event.target.value)}
+          placeholder="What would you like to ask about this selection?"
+          rows={3}
+          value={prompt}
+        />
+        <button
+          disabled={
+            !snapshots?.contextSnapshotId ||
+            !prompt.trim() ||
+            aiState !== "idle"
+          }
+          type="submit"
+        >
+          {aiState === "streaming" ? "Thinking…" : "Send"}
+        </button>
+        <button
+          className={`secondary ${
+            aiState === "generating" ? "is-generating" : ""
+          }`}
+          disabled={
+            aiState !== "generating" &&
+            (!snapshots?.contextSnapshotId ||
+              !prompt.trim() ||
+              aiState !== "idle")
+          }
+          onClick={
+            aiState === "generating" ? onCancelGeneration : onGenerateImage
+          }
+          type="button"
+        >
+          {aiState === "generating" ? "Stop generating" : "Generate image"}
+        </button>
+        {aiError ? <p className="error-note">{aiError}</p> : null}
+      </form>
     </aside>
   );
 }
