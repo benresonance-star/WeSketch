@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 
-type Mode = "sign-in" | "sign-up";
+type Mode = "sign-in" | "sign-up" | "reset";
 
 export function LoginForm() {
   const router = useRouter();
@@ -23,6 +23,19 @@ export function LoginForm() {
     const siteUrl = (
       process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
     ).replace(/\/$/, "");
+
+    if (mode === "reset") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${siteUrl}/auth/callback?next=/update-password`,
+      });
+      setState("idle");
+      setMessage(
+        error
+          ? error.message
+          : "If an account exists for this email, a password reset link has been sent.",
+      );
+      return;
+    }
 
     const result =
       mode === "sign-in"
@@ -55,7 +68,13 @@ export function LoginForm() {
     <form className="auth-card" onSubmit={handleSubmit}>
       <div>
         <p className="eyebrow">Phase 2 persistence</p>
-        <h1>{mode === "sign-in" ? "Sign in to WeSketch" : "Create an account"}</h1>
+        <h1>
+          {mode === "sign-in"
+            ? "Sign in to WeSketch"
+            : mode === "sign-up"
+              ? "Create an account"
+              : "Reset your password"}
+        </h1>
         <p className="auth-copy">
           Your projects are private and synchronized through Supabase.
         </p>
@@ -71,38 +90,56 @@ export function LoginForm() {
           value={email}
         />
       </label>
-      <label>
-        Password
-        <input
-          autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
-          minLength={8}
-          onChange={(event) => setPassword(event.target.value)}
-          required
-          type="password"
-          value={password}
-        />
-      </label>
+      {mode !== "reset" ? (
+        <label>
+          Password
+          <input
+            autoComplete={
+              mode === "sign-in" ? "current-password" : "new-password"
+            }
+            minLength={8}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            type="password"
+            value={password}
+          />
+        </label>
+      ) : null}
       {message ? <p className="auth-message">{message}</p> : null}
       <button disabled={state === "submitting"} type="submit">
         {state === "submitting"
           ? "Please wait…"
           : mode === "sign-in"
             ? "Sign in"
-            : "Create account"}
+            : mode === "sign-up"
+              ? "Create account"
+              : "Email reset link"}
       </button>
+      {mode === "sign-in" ? (
+        <button
+          className="text-button"
+          onClick={() => {
+            setMode("reset");
+            setMessage(null);
+          }}
+          type="button"
+        >
+          Forgot password?
+        </button>
+      ) : null}
       <button
         className="text-button"
         onClick={() => {
-          setMode((current) =>
-            current === "sign-in" ? "sign-up" : "sign-in",
-          );
+          setMode(mode === "sign-in" ? "sign-up" : "sign-in");
           setMessage(null);
         }}
         type="button"
       >
         {mode === "sign-in"
           ? "Need an account? Sign up"
-          : "Already have an account? Sign in"}
+          : mode === "sign-up"
+            ? "Already have an account? Sign in"
+            : "Back to sign in"}
       </button>
     </form>
   );

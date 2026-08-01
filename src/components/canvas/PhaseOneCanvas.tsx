@@ -9,6 +9,7 @@ import {
   type ChangeEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { Settings } from "lucide-react";
 
@@ -65,6 +66,11 @@ import {
   type RemoteSceneContext,
 } from "@/lib/canvas/remote-persistence";
 import { createClient } from "@/lib/supabase/client";
+import {
+  deleteUiConfiguration as deleteRemoteUiConfiguration,
+  loadUiConfigurations,
+  saveUiConfiguration as saveRemoteUiConfiguration,
+} from "@/lib/ui-configurations";
 import { createUuid, isUuid } from "@/lib/uuid";
 import type {
   BrushSettings,
@@ -188,7 +194,7 @@ function revokeSnapshotUrls(snapshot: SnapshotPreview) {
 }
 
 function screenPointFromEvent(
-  event: PointerEvent,
+  event: { clientX: number; clientY: number },
   canvas: HTMLCanvasElement,
 ): ScreenPoint {
   const bounds = canvas.getBoundingClientRect();
@@ -249,6 +255,7 @@ function isSavedUiConfiguration(
   const candidate = value as Partial<SavedUiConfiguration>;
   return (
     typeof candidate.id === "string" &&
+    isUuid(candidate.id) &&
     typeof candidate.name === "string" &&
     (candidate.themeMode === "light" || candidate.themeMode === "dark") &&
     typeof candidate.canvasColor === "string" &&
@@ -803,9 +810,18 @@ export function PhaseOneCanvas({
         : [...savedUiConfigurations, configuration];
       setSavedUiConfigurations(nextConfigurations);
       persistUiConfigurations(nextConfigurations);
+      queueRemoteSync(() =>
+        saveRemoteUiConfiguration(userId, configuration),
+      );
       return configuration.id;
     },
-    [canvasColor, savedUiConfigurations, themeMode],
+    [
+      canvasColor,
+      queueRemoteSync,
+      savedUiConfigurations,
+      themeMode,
+      userId,
+    ],
   );
 
   const applyUiConfiguration = useCallback(
@@ -823,8 +839,9 @@ export function PhaseOneCanvas({
       );
       setSavedUiConfigurations(nextConfigurations);
       persistUiConfigurations(nextConfigurations);
+      queueRemoteSync(() => deleteRemoteUiConfiguration(id));
     },
-    [savedUiConfigurations],
+    [queueRemoteSync, savedUiConfigurations],
   );
 
   const fitToScreen = useCallback(() => {
@@ -837,6 +854,25 @@ export function PhaseOneCanvas({
     );
     scheduleRender();
   }, [scheduleRender]);
+
+  const handleWheelZoom = useCallback(
+    (event: ReactWheelEvent<HTMLCanvasElement>) => {
+      if (event.deltaY === 0) {
+        return;
+      }
+      event.preventDefault();
+      const center = screenPointFromEvent(event, event.currentTarget);
+      const currentViewport = viewportRef.current;
+      viewportRef.current = zoomViewport(
+        currentViewport,
+        center,
+        center,
+        Math.exp(-event.deltaY * 0.0015),
+      );
+      scheduleRender();
+    },
+    [scheduleRender],
+  );
 
   useEffect(() => {
     hasFittedRef.current = false;
@@ -867,21 +903,75 @@ export function PhaseOneCanvas({
   }, [scheduleRender]);
 
   useEffect(() => {
+    let cancelled = false;
+    let localConfigurations: SavedUiConfiguration[] = [];
+
     try {
       const stored = JSON.parse(
         localStorage.getItem(UI_CONFIGURATION_STORAGE_KEY) ?? "[]",
       ) as unknown;
       if (Array.isArray(stored)) {
-        const configurations = stored.filter(isSavedUiConfiguration);
-        const frame = requestAnimationFrame(() =>
-          setSavedUiConfigurations(configurations),
-        );
-        return () => cancelAnimationFrame(frame);
+        localConfigurations = stored.filter(isSavedUiConfiguration);
       }
     } catch {
       // Ignore malformed or unavailable browser storage.
     }
-  }, []);
+
+    const initializeConfigurations = async () => {
+      try {
+        const remoteConfigurations = await loadUiConfigurations(userId);
+        if (cancelled) {
+          return;
+        }
+
+        const remoteNames = new Set(
+          remoteConfigurations.map((configuration) =>
+            configuration.name.toLocaleLowerCase(),
+          ),
+        );
+        const localOnlyConfigurations = localConfigurations.filter(
+          (configuration) =>
+            !remoteNames.has(configuration.name.toLocaleLowerCase()),
+        );
+        const mergedConfigurations = [
+          ...remoteConfigurations,
+          ...localOnlyConfigurations,
+        ];
+        setSavedUiConfigurations(mergedConfigurations);
+        persistUiConfigurations(mergedConfigurations);
+
+        try {
+          await Promise.all(
+            localOnlyConfigurations.map((configuration) =>
+              saveRemoteUiConfiguration(userId, configuration),
+            ),
+          );
+        } catch (error: unknown) {
+          if (!cancelled) {
+            setStats((current) => ({
+              ...current,
+              persistenceState: "error",
+              persistenceError: `UI configuration migration: ${errorMessage(error)}`,
+            }));
+          }
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setSavedUiConfigurations(localConfigurations);
+          setStats((current) => ({
+            ...current,
+            persistenceState: "error",
+            persistenceError: `UI configurations: ${errorMessage(error)}`,
+          }));
+        }
+      }
+    };
+
+    void initializeConfigurations();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
     let frame: number | null = null;
@@ -2558,10 +2648,11 @@ export function PhaseOneCanvas({
               event.preventDefault();
               finishPointer(event.nativeEvent, false);
             }}
+            onWheel={handleWheelZoom}
             ref={interactionCanvasRef}
           />
           <div className="gesture-hint">
-            Pencil uses the active tool · two fingers pan and zoom
+            Pencil uses the active tool · two fingers or mouse wheel zoom
           </div>
           {selectedObjectId ? (
             <div className="contextual-actions">
