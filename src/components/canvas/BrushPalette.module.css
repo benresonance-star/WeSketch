@@ -1,0 +1,209 @@
+.root {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.root :global(.brush-popover-header h2),
+.root :global(.brush-control label),
+.root :global(.brush-control output),
+.root :global(.brush-control-label span),
+.root :global(.brush-pressure-toggle strong) {
+  color: var(--ink);
+}
+
+.root :global(.brush-control-label span),
+.root :global(.brush-pressure-toggle small) {
+  color: var(--muted);
+}
+
+.root :global(.brush-layout-toggle),
+.root :global(.brush-preview),
+.root :global(.brush-pressure-toggle) {
+  background: var(--control);
+  border-color: var(--line);
+}
+
+.root :global(.brush-layout-toggle button) {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 34px;
+  -webkit-appearance: none;
+}
+
+.root :global(.brush-layout-toggle button svg),
+.root :global(.brush-close-button svg) {
+  height: 17px;
+  width: 17px;
+}
+
+.root :global(.brush-layout-toggle button[aria-pressed="true"]) {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+.root :global(.brush-close-button) {
+  appearance: none;
+  background: var(--control);
+  border: 0;
+  color: var(--ink);
+  -webkit-appearance: none;
+}
+
+.root :global(input[type="color"]) {
+  background: var(--raised);
+  border-color: var(--line);
+}
+
+.root :global(input[type="range"]) {
+  accent-color: var(--accent);
+}
+
+.root :global(input[type="checkbox"]) {
+  accent-color: var(--accent);
+}
+
+.standard {
+  transform: none;
+}
+
+.root.horizontal {
+  align-items: center;
+  gap: 8px;
+  grid-template-areas: "preview size colour pressure actions";
+  grid-template-columns: 48px 98px minmax(216px, 1fr) 70px auto;
+  left: calc(50% - 104px);
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 5px 8px;
+  top: 82px;
+  transform: translateX(-50%);
+  width: min(700px, calc(100vw - 352px));
+}
+
+.horizontal :global(.brush-popover-header) {
+  border-left: 1px solid var(--line);
+  gap: 0;
+  grid-area: actions;
+  padding-left: 8px;
+}
+
+.horizontal :global(.brush-popover-header > div:first-child) {
+  display: none;
+}
+
+.horizontal :global(.brush-popover-actions) {
+  gap: 5px;
+}
+
+.horizontal :global(.brush-layout-toggle) {
+  padding: 2px;
+}
+
+.horizontal :global(.brush-layout-toggle button) {
+  height: 26px;
+  min-height: 26px;
+  width: 28px;
+}
+
+.horizontal :global(.brush-close-button) {
+  height: 28px;
+  width: 28px;
+}
+
+.horizontal :global(.brush-preview) {
+  border-radius: 8px;
+  grid-area: preview;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 7px;
+}
+
+.horizontal :global(.brush-size-control) {
+  border-left: 1px solid var(--line);
+  grid-area: size;
+  padding-left: 8px;
+}
+
+.horizontal :global(.brush-colour-control) {
+  border-left: 1px solid var(--line);
+  grid-area: colour;
+  padding-left: 8px;
+}
+
+.horizontal :global(.brush-control) {
+  align-content: center;
+  gap: 2px;
+}
+
+.horizontal :global(.brush-control-label) {
+  font-size: 9px;
+}
+
+.horizontal :global(.brush-control input[type="range"]) {
+  height: 18px;
+}
+
+.horizontal :global(.brush-colour-row) {
+  gap: 5px;
+  grid-template-columns: 32px minmax(0, 1fr);
+}
+
+.horizontal :global(.brush-colour-row input[type="color"]) {
+  height: 24px;
+  width: 24px;
+}
+
+.horizontal :global(.brush-swatches) {
+  gap: 5px;
+  grid-template-columns: repeat(10, 16px);
+}
+
+.horizontal :global(.brush-swatch) {
+  height: 16px;
+  width: 16px;
+}
+
+.horizontal :global(.brush-pressure-toggle) {
+  border-left: 1px solid var(--line);
+  border-top: 0;
+  display: grid;
+  gap: 3px;
+  grid-area: pressure;
+  justify-items: center;
+  padding-left: 8px;
+  padding-top: 0;
+}
+
+.horizontal :global(.brush-pressure-toggle span) {
+  display: block;
+}
+
+.horizontal :global(.brush-pressure-toggle strong) {
+  font-size: 9px;
+}
+
+.horizontal :global(.brush-pressure-toggle small) {
+  display: none;
+}
+
+.horizontal :global(.brush-pressure-toggle input) {
+  height: 18px;
+  width: 18px;
+}
+
+.visuallyHidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}

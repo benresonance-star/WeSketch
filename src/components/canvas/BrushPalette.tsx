@@ -1,3 +1,6 @@
+import { PanelLeft, PanelTop, X } from "lucide-react";
+
+import styles from "@/components/canvas/BrushPalette.module.css";
 import type { BrushSettings } from "@/types/canvas";
 
 export type BrushPaletteLayout = "standard" | "horizontal";
@@ -33,7 +36,9 @@ export function BrushPalette({
   return (
     <section
       aria-label="Pen palette"
-      className={`brush-popover ${layout}`}
+      className={`${styles.root} ${
+        layout === "horizontal" ? styles.horizontal : styles.standard
+      } brush-popover ${layout}`}
       data-testid="brush-palette"
     >
       <header className="brush-popover-header">
@@ -48,14 +53,16 @@ export function BrushPalette({
               onClick={() => onLayoutChange("standard")}
               type="button"
             >
-              Standard
+              <PanelLeft aria-hidden="true" />
+              <span className={styles.visuallyHidden}>Standard palette</span>
             </button>
             <button
               aria-pressed={layout === "horizontal"}
               onClick={() => onLayoutChange("horizontal")}
               type="button"
             >
-              Horizontal
+              <PanelTop aria-hidden="true" />
+              <span className={styles.visuallyHidden}>Horizontal palette</span>
             </button>
           </div>
           <button
@@ -64,7 +71,7 @@ export function BrushPalette({
             onClick={onClose}
             type="button"
           >
-            ×
+            <X aria-hidden="true" />
           </button>
         </div>
       </header>
