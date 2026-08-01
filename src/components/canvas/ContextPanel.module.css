@@ -1,0 +1,194 @@
+.root {
+  background: var(--panel);
+  color: var(--ink);
+  isolation: isolate;
+  position: relative;
+}
+
+.settingsOverlay {
+  align-content: start;
+  background: var(--panel, #242220);
+  background-color: var(--panel, #242220);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  bottom: 0;
+  box-shadow: none;
+  color: var(--ink);
+  display: grid;
+  gap: 14px;
+  isolation: isolate;
+  left: 0;
+  max-height: none;
+  opacity: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 14px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 100;
+  -webkit-overflow-scrolling: touch;
+}
+
+.root :global(.panel-scroll-content) {
+  position: relative;
+  z-index: 0;
+}
+
+.root :global(.metric-grid div),
+.root :global(.snapshot-card) {
+  background: var(--control-subtle);
+  color: var(--ink);
+}
+
+.root :global(.conversation-message.user) {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.root :global(.conversation-message.assistant) {
+  background: var(--control);
+  color: var(--ink);
+}
+
+.root :global(.conversation-message),
+.root :global(.conversation-message p),
+.root :global(.conversation-message strong),
+.root :global(.conversation-empty) {
+  color: var(--ink);
+}
+
+.root :global(.canvas-settings-popover select),
+.root :global(.canvas-settings-popover input[type="text"]),
+.root :global(.canvas-settings-popover input[type="email"]),
+.root :global(.prompt-composer textarea) {
+  appearance: none;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  -webkit-appearance: none;
+}
+
+.root :global(.canvas-settings-popover option) {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+.root :global(.settings-title button),
+.root :global(.prompt-composer button.secondary),
+.root :global(.diagnostic-actions button.secondary) {
+  background: var(--raised);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.root :global(.diagnostic-actions button),
+.root :global(.prompt-composer button:not(.secondary)),
+.root :global(.add-generated-button) {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.root :global(.diagnostic-actions button:disabled) {
+  opacity: 0.45;
+}
+
+.root :global(.canvas-colour-setting) {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.root :global(.canvas-colour-setting > label),
+.root :global(.ui-configuration-settings > label) {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.root :global(.canvas-colour-setting > div) {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.root :global(.canvas-colour-setting input) {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  height: 40px;
+  padding: 4px;
+  width: 58px;
+}
+
+.root :global(.canvas-colour-setting output) {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.root :global(.ui-configuration-settings) {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.root :global(.ui-configuration-settings select),
+.root :global(.ui-configuration-settings input) {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  min-height: 40px;
+  min-width: 0;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.root :global(.ui-configuration-save-row) {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.root :global(.ui-configuration-settings button) {
+  appearance: none;
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 7px;
+  color: var(--on-primary);
+  min-height: 40px;
+  padding: 0 10px;
+  -webkit-appearance: none;
+}
+
+.root
+  :global(.ui-configuration-settings button.delete-ui-configuration) {
+  background: var(--raised);
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.root :global(.context-image-settings) {
+  background: var(--raised);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.root :global(.settings-clear-button) {
+  background: var(--raised);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.root :global(.prompt-composer textarea) {
+  border-radius: 8px;
+}
+
+.root :global(.generated-image-button),
+.root :global(.add-generated-button) {
+  border-color: var(--line);
+}

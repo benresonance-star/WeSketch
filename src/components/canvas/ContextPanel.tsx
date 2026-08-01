@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
+import styles from "@/components/canvas/ContextPanel.module.css";
 import type {
   ConversationMessage,
   ImageGenerationQuality,
@@ -115,7 +116,7 @@ export function ContextPanel({
   }, []);
 
   return (
-    <aside className="diagnostics-panel">
+    <aside className={`${styles.root} diagnostics-panel`}>
       <header className="panel-heading">
         <div>
           <p className="eyebrow">Selection conversation</p>
@@ -124,7 +125,10 @@ export function ContextPanel({
       </header>
 
       {isSettingsOpen ? (
-        <section className="canvas-settings-popover" aria-label="Canvas settings">
+        <section
+          aria-label="Canvas settings"
+          className={`${styles.settingsOverlay} canvas-settings-popover`}
+        >
           <div className="settings-title">
             <strong>Canvas settings</strong>
             <button

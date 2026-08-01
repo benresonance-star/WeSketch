@@ -225,6 +225,138 @@ select:focus-visible {
   flex: 0 0 auto;
 }
 
+.layers-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 18px 55px rgba(36, 34, 32, 0.22);
+  display: grid;
+  gap: 10px;
+  left: 84px;
+  max-height: 620px;
+  overflow: hidden;
+  padding: 12px;
+  position: fixed;
+  top: 88px;
+  width: 290px;
+  z-index: 12;
+}
+
+.layers-panel-header,
+.layers-panel-actions,
+.layer-row-main,
+.layer-order-actions,
+.layer-row label {
+  align-items: center;
+  display: flex;
+}
+
+.layers-panel-header {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.layers-panel-header strong {
+  font-size: 14px;
+}
+
+.layers-panel-actions,
+.layer-order-actions {
+  gap: 4px;
+}
+
+.layers-panel button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+}
+
+.layers-panel button:active,
+.layers-panel button:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.layers-panel button:disabled {
+  opacity: 0.25;
+}
+
+.layers-panel button svg {
+  height: 18px;
+  width: 18px;
+}
+
+.layers-list {
+  display: grid;
+  gap: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.layer-row {
+  background: var(--control-subtle);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  display: grid;
+  gap: 7px;
+  padding: 7px;
+}
+
+.layer-row.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.layer-row-main {
+  gap: 4px;
+}
+
+.layer-row-main > input {
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  flex: 1 1 auto;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 0;
+  padding: 6px 4px;
+}
+
+.layer-order-actions {
+  flex: 0 0 auto;
+}
+
+.layer-order-actions button {
+  height: 28px;
+  width: 24px;
+}
+
+.layer-row label {
+  color: var(--muted);
+  font-size: 10px;
+  gap: 7px;
+}
+
+.layer-row label input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.layer-row output {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  width: 32px;
+}
+
 .brush-popover {
   background: color-mix(in srgb, var(--panel) 98%, transparent);
   border: 1px solid var(--line);

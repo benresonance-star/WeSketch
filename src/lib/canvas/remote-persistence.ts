@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { CanvasImageObject, Stroke } from "@/types/canvas";
+import type { CanvasImageObject, CanvasLayer, Stroke } from "@/types/canvas";
 
 const ASSET_BUCKET = "project-assets";
 
@@ -11,12 +11,14 @@ export type RemoteSceneContext = {
 };
 
 export type RemoteScene = {
+  layers: CanvasLayer[];
   strokes: Stroke[];
   objects: CanvasImageObject[];
 };
 
 type RemoteStrokeRow = {
   id: string;
+  layer_id: string;
   points: Stroke["points"];
   style: {
     color?: string;
@@ -28,6 +30,7 @@ type RemoteStrokeRow = {
 
 type RemoteObjectRow = {
   id: string;
+  layer_id: string;
   x: number;
   y: number;
   width: number;
@@ -36,6 +39,15 @@ type RemoteObjectRow = {
   z_index: number;
   artifact_id: string | null;
   data: { storagePath?: string; mimeType?: string };
+  created_at: string;
+};
+
+type RemoteLayerRow = {
+  id: string;
+  name: string;
+  sort_order: number;
+  opacity: number;
+  is_visible: boolean;
   created_at: string;
 };
 
@@ -66,29 +78,36 @@ export async function loadRemoteScene(
   supabase: SupabaseClient,
   context: RemoteSceneContext,
 ): Promise<RemoteScene> {
-  const [strokeResult, objectResult] = await Promise.all([
+  const [layerResult, strokeResult, objectResult] = await Promise.all([
+    supabase
+      .from("canvas_layers")
+      .select("id, name, sort_order, opacity, is_visible, created_at")
+      .eq("canvas_id", context.canvasId)
+      .order("sort_order"),
     supabase
       .from("strokes")
-      .select("id, points, style, created_at")
+      .select("id, layer_id, points, style, created_at")
       .eq("canvas_id", context.canvasId)
       .is("deleted_at", null)
       .order("z_index"),
     supabase
       .from("canvas_objects")
       .select(
-        "id, x, y, width, height, rotation, z_index, artifact_id, data, created_at",
+        "id, layer_id, x, y, width, height, rotation, z_index, artifact_id, data, created_at",
       )
       .eq("canvas_id", context.canvasId)
       .is("deleted_at", null)
       .order("z_index"),
   ]);
 
+  throwIfError(layerResult.error);
   throwIfError(strokeResult.error);
   throwIfError(objectResult.error);
 
   const strokes = (strokeResult.data as RemoteStrokeRow[] | null)?.map(
     (row) => ({
       id: row.id,
+      layerId: row.layer_id,
       points: row.points,
       color: row.style.color ?? "#242220",
       width: row.style.width ?? 4,
@@ -114,6 +133,7 @@ export async function loadRemoteScene(
 
       return {
         id: row.id,
+        layerId: row.layer_id,
         type: "image" as const,
         x: Number(row.x),
         y: Number(row.y),
@@ -130,7 +150,18 @@ export async function loadRemoteScene(
     }),
   );
 
-  return { strokes: strokes ?? [], objects };
+  const layers = ((layerResult.data as RemoteLayerRow[] | null) ?? []).map(
+    (row) => ({
+      id: row.id,
+      name: row.name,
+      order: row.sort_order,
+      opacity: Number(row.opacity),
+      visible: row.is_visible,
+      createdAt: new Date(row.created_at).getTime(),
+    }),
+  );
+
+  return { layers, strokes: strokes ?? [], objects };
 }
 
 export async function saveRemoteStroke(
@@ -142,6 +173,7 @@ export async function saveRemoteStroke(
   await withRetry(async () => {
     const { error } = await supabase.from("strokes").upsert({
       id: stroke.id,
+      layer_id: stroke.layerId,
       canvas_id: context.canvasId,
       user_id: context.userId,
       points: stroke.points,
@@ -233,6 +265,7 @@ export async function saveRemoteObject(
   await withRetry(async () => {
     const { error } = await supabase.from("canvas_objects").upsert({
       id: savedObject.id,
+      layer_id: savedObject.layerId,
       canvas_id: context.canvasId,
       user_id: context.userId,
       type: savedObject.type,
@@ -254,6 +287,26 @@ export async function saveRemoteObject(
   });
 
   return savedObject;
+}
+
+export async function saveRemoteLayer(
+  supabase: SupabaseClient,
+  context: RemoteSceneContext,
+  layer: CanvasLayer,
+): Promise<void> {
+  await withRetry(async () => {
+    const { error } = await supabase.from("canvas_layers").upsert({
+      id: layer.id,
+      canvas_id: context.canvasId,
+      user_id: context.userId,
+      name: layer.name,
+      sort_order: layer.order,
+      opacity: layer.opacity,
+      is_visible: layer.visible,
+      created_at: new Date(layer.createdAt).toISOString(),
+    });
+    throwIfError(error);
+  });
 }
 
 export async function deleteRemoteObject(

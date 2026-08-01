@@ -1,9 +1,10 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
-import type { CanvasImageObject, Stroke } from "@/types/canvas";
+import type { CanvasImageObject, CanvasLayer, Stroke } from "@/types/canvas";
 
 type StoredStroke = Stroke & { projectId?: string };
 type StoredObject = CanvasImageObject & { projectId?: string };
+type StoredLayer = CanvasLayer & { projectId: string };
 export type SceneDeletion = {
   key: string;
   projectId: string;
@@ -22,6 +23,11 @@ interface WeSketchPrototypeDatabase extends DBSchema {
     value: StoredObject;
     indexes: { projectId: string };
   };
+  layers: {
+    key: string;
+    value: StoredLayer;
+    indexes: { projectId: string };
+  };
   deletions: {
     key: string;
     value: SceneDeletion;
@@ -30,7 +36,7 @@ interface WeSketchPrototypeDatabase extends DBSchema {
 }
 
 const DATABASE_NAME = "wesketch-phase-zero";
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 5;
 
 let databasePromise: Promise<IDBPDatabase<WeSketchPrototypeDatabase>> | null = null;
 
@@ -62,6 +68,12 @@ function getDatabase(): Promise<IDBPDatabase<WeSketchPrototypeDatabase>> {
               keyPath: "key",
             });
             deletions.createIndex("projectId", "projectId");
+          }
+          if (!database.objectStoreNames.contains("layers")) {
+            const layers = database.createObjectStore("layers", {
+              keyPath: "id",
+            });
+            layers.createIndex("projectId", "projectId");
           }
         },
       },
@@ -167,6 +179,21 @@ export async function clearCanvasObjects(projectId: string): Promise<void> {
   const transaction = database.transaction("objects", "readwrite");
   await Promise.all(keys.map((key) => transaction.store.delete(key)));
   await transaction.done;
+}
+
+export async function loadCanvasLayers(
+  projectId: string,
+): Promise<CanvasLayer[]> {
+  const database = await getDatabase();
+  return database.getAllFromIndex("layers", "projectId", projectId);
+}
+
+export async function saveCanvasLayer(
+  projectId: string,
+  layer: CanvasLayer,
+): Promise<void> {
+  const database = await getDatabase();
+  await database.put("layers", { ...layer, projectId });
 }
 
 export async function loadSceneDeletions(

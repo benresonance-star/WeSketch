@@ -294,6 +294,7 @@ export function PhaseZeroCanvas() {
     context.clip();
     drawStroke(context, {
       id: "active",
+      layerId: "default",
       points: activePointsRef.current,
       color: PEN_COLOR,
       width: 4,
@@ -471,6 +472,7 @@ export function PhaseZeroCanvas() {
 
     const stroke: Stroke = {
       id: strokeId,
+      layerId: "default",
       points,
       color: PEN_COLOR,
       width: 4,
@@ -758,6 +760,7 @@ export function PhaseZeroCanvas() {
 
       generated.push({
         id: `stress-${index}`,
+        layerId: "default",
         points,
         color: index % 8 === 0 ? "#716b63" : PEN_COLOR,
         width: 2.4,

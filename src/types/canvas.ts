@@ -14,8 +14,18 @@ export type BrushSettings = {
   pressureEnabled: boolean;
 };
 
+export type CanvasLayer = {
+  id: string;
+  name: string;
+  order: number;
+  opacity: number;
+  visible: boolean;
+  createdAt: number;
+};
+
 export type Stroke = {
   id: string;
+  layerId: string;
   points: Point[];
   color: string;
   width: number;
@@ -32,6 +42,7 @@ export type Bounds = {
 
 export type CanvasImageObject = Bounds & {
   id: string;
+  layerId: string;
   type: "image";
   rotation: number;
   zIndex: number;

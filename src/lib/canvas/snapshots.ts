@@ -3,6 +3,7 @@ import { expandBounds } from "@/lib/canvas/selection";
 import type {
   Bounds,
   CanvasImageObject,
+  CanvasLayer,
   CanvasSelection,
   Stroke,
 } from "@/types/canvas";
@@ -17,6 +18,7 @@ type SnapshotInput = {
   selection: CanvasSelection;
   strokes: Stroke[];
   objects: CanvasImageObject[];
+  layers: CanvasLayer[];
   imageSources: Map<string, CanvasImageSource>;
   worldWidth: number;
   worldHeight: number;
@@ -76,6 +78,7 @@ async function renderSnapshot(
     {
       strokes: input.strokes,
       objects: input.objects,
+      layers: input.layers,
       imageSources: input.imageSources,
     },
     input.backgroundColor,

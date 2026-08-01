@@ -49,10 +49,12 @@ import {
   deleteCanvasObject,
   deleteStroke,
   loadCanvasObjects,
+  loadCanvasLayers,
   loadSceneDeletions,
   loadStrokes,
   markSceneDeletion,
   saveCanvasObject,
+  saveCanvasLayer,
   saveStroke,
   type SceneDeletion,
 } from "@/lib/canvas/storage";
@@ -62,6 +64,7 @@ import {
   deleteRemoteStroke,
   loadRemoteScene,
   saveRemoteObject,
+  saveRemoteLayer,
   saveRemoteStroke,
   type RemoteSceneContext,
 } from "@/lib/canvas/remote-persistence";
@@ -75,6 +78,7 @@ import { createUuid, isUuid } from "@/lib/uuid";
 import type {
   BrushSettings,
   CanvasImageObject,
+  CanvasLayer,
   CanvasSelection,
   ConversationMessage,
   ImageGenerationQuality,
@@ -225,10 +229,17 @@ function worldPointFromEvent(
 function hitTestObject(
   point: ScreenPoint,
   objects: CanvasImageObject[],
+  layers: CanvasLayer[],
 ): CanvasImageObject | null {
-  const sorted = [...objects].sort(
-    (first, second) => second.zIndex - first.zIndex,
+  const layerOrder = new Map(
+    layers.map((layer) => [layer.id, layer.order] as const),
   );
+  const sorted = [...objects].sort((first, second) => {
+    const orderDifference =
+      (layerOrder.get(second.layerId) ?? 0) -
+      (layerOrder.get(first.layerId) ?? 0);
+    return orderDifference || second.zIndex - first.zIndex;
+  });
   return sorted.find((canvasObject) => pointInBounds(point, canvasObject)) ?? null;
 }
 
@@ -276,6 +287,17 @@ function persistUiConfigurations(
   }
 }
 
+function createDefaultLayer(canvasId: string): CanvasLayer {
+  return {
+    id: canvasId,
+    name: "Layer 1",
+    order: 0,
+    opacity: 1,
+    visible: true,
+    createdAt: Date.now(),
+  };
+}
+
 type PhaseOneCanvasProps = {
   backLink: ReactNode;
   canvasId: string;
@@ -297,8 +319,11 @@ export function PhaseOneCanvas({
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
   const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const defaultLayerRef = useRef(createDefaultLayer(canvasId));
   const strokesRef = useRef<Stroke[]>([]);
   const objectsRef = useRef<CanvasImageObject[]>([]);
+  const layersRef = useRef<CanvasLayer[]>([defaultLayerRef.current]);
+  const activeLayerIdRef = useRef(canvasId);
   const imageSourcesRef = useRef(new Map<string, ImageBitmap>());
   const historyRef = useRef<HistoryCommand[]>([]);
   const redoRef = useRef<HistoryCommand[]>([]);
@@ -336,6 +361,10 @@ export function PhaseOneCanvas({
   const toolRef = useRef<Tool>("pen");
   const [brushSettings, setBrushSettings] = useState(DEFAULT_BRUSH_SETTINGS);
   const [canvasColor, setCanvasColor] = useState(initialCanvasColor);
+  const [layers, setLayers] = useState<CanvasLayer[]>([
+    defaultLayerRef.current,
+  ]);
+  const [activeLayerId, setActiveLayerId] = useState(canvasId);
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [savedUiConfigurations, setSavedUiConfigurations] = useState<
     SavedUiConfiguration[]
@@ -628,6 +657,7 @@ export function PhaseOneCanvas({
       viewportRef.current,
       { width: WORLD_WIDTH, height: WORLD_HEIGHT },
       {
+        layers: layersRef.current,
         strokes: strokesRef.current,
         objects: objectsRef.current,
         imageSources: imageSourcesRef.current,
@@ -672,14 +702,23 @@ export function PhaseOneCanvas({
     context.clip();
 
     if (activePointsRef.current.length > 0) {
-      drawStroke(context, {
-        id: "active",
-        points: activePointsRef.current,
-        color: brushSettingsRef.current.color,
-        width: brushSettingsRef.current.size,
-        pressureEnabled: brushSettingsRef.current.pressureEnabled,
-        createdAt: 0,
-      });
+      const activeLayer = layersRef.current.find(
+        (layer) => layer.id === activeLayerIdRef.current,
+      );
+      if (activeLayer?.visible && activeLayer.opacity > 0) {
+        context.save();
+        context.globalAlpha *= activeLayer.opacity;
+        drawStroke(context, {
+          id: "active",
+          layerId: activeLayerIdRef.current,
+          points: activePointsRef.current,
+          color: brushSettingsRef.current.color,
+          width: brushSettingsRef.current.size,
+          pressureEnabled: brushSettingsRef.current.pressureEnabled,
+          createdAt: 0,
+        });
+        context.restore();
+      }
     }
 
     const currentSelection = selectionRef.current;
@@ -873,6 +912,98 @@ export function PhaseOneCanvas({
     },
     [scheduleRender],
   );
+
+  const persistLayerChanges = useCallback(
+    (nextLayers: CanvasLayer[], changedLayers: CanvasLayer[]) => {
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
+      invalidateSnapshots();
+      scheduleRender();
+      changedLayers.forEach((layer) => {
+        queueRemoteSync(async () => {
+          await saveCanvasLayer(projectId, layer);
+          await saveRemoteLayer(supabase, remoteContext, layer);
+        });
+      });
+    },
+    [
+      invalidateSnapshots,
+      projectId,
+      queueRemoteSync,
+      remoteContext,
+      scheduleRender,
+      supabase,
+    ],
+  );
+
+  const addLayer = useCallback(() => {
+    const nextLayer: CanvasLayer = {
+      id: createUuid(),
+      name: `Layer ${layersRef.current.length + 1}`,
+      order:
+        layersRef.current.reduce(
+          (highest, layer) => Math.max(highest, layer.order),
+          -1,
+        ) + 1,
+      opacity: 1,
+      visible: true,
+      createdAt: Date.now(),
+    };
+    const nextLayers = [...layersRef.current, nextLayer];
+    activeLayerIdRef.current = nextLayer.id;
+    setActiveLayerId(nextLayer.id);
+    persistLayerChanges(nextLayers, [nextLayer]);
+  }, [persistLayerChanges]);
+
+  const changeLayer = useCallback(
+    (nextLayer: CanvasLayer) => {
+      const nextLayers = layersRef.current.map((layer) =>
+        layer.id === nextLayer.id ? nextLayer : layer,
+      );
+      if (
+        !nextLayer.visible &&
+        objectsRef.current.some(
+          (canvasObject) =>
+            canvasObject.id === selectedObjectIdRef.current &&
+            canvasObject.layerId === nextLayer.id,
+        )
+      ) {
+        selectedObjectIdRef.current = null;
+        setSelectedObjectId(null);
+      }
+      persistLayerChanges(nextLayers, [nextLayer]);
+    },
+    [persistLayerChanges],
+  );
+
+  const moveLayer = useCallback(
+    (id: string, direction: "up" | "down") => {
+      const ordered = [...layersRef.current].sort(
+        (first, second) => first.order - second.order,
+      );
+      const index = ordered.findIndex((layer) => layer.id === id);
+      const targetIndex = direction === "up" ? index + 1 : index - 1;
+      if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) {
+        return;
+      }
+      [ordered[index], ordered[targetIndex]] = [
+        ordered[targetIndex],
+        ordered[index],
+      ];
+      const nextLayers = ordered.map((layer, order) => ({ ...layer, order }));
+      const changedIds = new Set([id, ordered[index].id]);
+      persistLayerChanges(
+        nextLayers,
+        nextLayers.filter((layer) => changedIds.has(layer.id)),
+      );
+    },
+    [persistLayerChanges],
+  );
+
+  const activateLayer = useCallback((id: string) => {
+    activeLayerIdRef.current = id;
+    setActiveLayerId(id);
+  }, []);
 
   useEffect(() => {
     hasFittedRef.current = false;
@@ -1075,6 +1206,7 @@ export function PhaseOneCanvas({
     const applyScene = async (
       strokes: Stroke[],
       objects: CanvasImageObject[],
+      sceneLayers: CanvasLayer[],
     ) => {
       const decoded = await Promise.all(
         objects.map(async (canvasObject) => ({
@@ -1090,6 +1222,21 @@ export function PhaseOneCanvas({
 
       imageSources.forEach((source) => source.close());
       imageSources.clear();
+      const availableLayers =
+        sceneLayers.length > 0 ? sceneLayers : [createDefaultLayer(canvasId)];
+      layersRef.current = availableLayers.sort(
+        (first, second) => first.order - second.order,
+      );
+      setLayers([...layersRef.current]);
+      if (
+        !layersRef.current.some(
+          (layer) => layer.id === activeLayerIdRef.current,
+        )
+      ) {
+        const topLayer = layersRef.current[layersRef.current.length - 1];
+        activeLayerIdRef.current = topLayer.id;
+        setActiveLayerId(topLayer.id);
+      }
       strokesRef.current = strokes.sort(
         (first, second) => first.createdAt - second.createdAt,
       );
@@ -1110,28 +1257,43 @@ export function PhaseOneCanvas({
     void (async () => {
       let localStrokes: Stroke[] = [];
       let localObjects: CanvasImageObject[] = [];
+      let localLayers: CanvasLayer[] = [];
       let deletions: SceneDeletion[] = [];
       let localError: unknown;
 
       try {
-        const [storedStrokes, storedObjects, storedDeletions] =
+        const [storedStrokes, storedObjects, storedLayers, storedDeletions] =
           await Promise.all([
             loadStrokes(projectId),
             loadCanvasObjects(projectId),
+            loadCanvasLayers(projectId),
             loadSceneDeletions(projectId),
           ]);
+        localLayers =
+          storedLayers.length > 0
+            ? storedLayers
+            : [createDefaultLayer(canvasId)];
+        const localLayerIds = new Set(localLayers.map((layer) => layer.id));
         localStrokes = storedStrokes.map((stroke) =>
-          isUuid(stroke.id) ? stroke : { ...stroke, id: createUuid() },
+          ({
+            ...stroke,
+            id: isUuid(stroke.id) ? stroke.id : createUuid(),
+            layerId: localLayerIds.has(stroke.layerId)
+              ? stroke.layerId
+              : canvasId,
+          }),
         );
         localObjects = storedObjects.map((canvasObject) =>
-          isUuid(canvasObject.id)
-            ? canvasObject
-            : {
-                ...canvasObject,
-                id: createUuid(),
-                artifactId: undefined,
-                storagePath: undefined,
-              },
+          ({
+            ...canvasObject,
+            id: isUuid(canvasObject.id) ? canvasObject.id : createUuid(),
+            layerId: localLayerIds.has(canvasObject.layerId)
+              ? canvasObject.layerId
+              : canvasId,
+            ...(isUuid(canvasObject.id)
+              ? {}
+              : { artifactId: undefined, storagePath: undefined }),
+          }),
         );
         deletions = storedDeletions.filter((deletion) =>
           isUuid(deletion.entityId),
@@ -1147,13 +1309,23 @@ export function PhaseOneCanvas({
               ),
             ),
         );
-        await applyScene(localStrokes, localObjects);
+        await applyScene(localStrokes, localObjects, localLayers);
       } catch (error) {
         localError = error;
       }
 
       try {
         const remote = await loadRemoteScene(supabase, remoteContext);
+        const layerMap = new Map(
+          remote.layers.map((layer) => [layer.id, layer]),
+        );
+        localLayers.forEach((layer) => {
+          if (!layerMap.has(layer.id)) {
+            layerMap.set(layer.id, layer);
+          }
+        });
+        const mergedLayers = Array.from(layerMap.values());
+        const mergedLayerIds = new Set(mergedLayers.map((layer) => layer.id));
         const deletedStrokeIds = new Set(
           deletions
             .filter((deletion) => deletion.kind === "stroke")
@@ -1190,10 +1362,22 @@ export function PhaseOneCanvas({
               : canvasObject,
           );
         });
-        const mergedStrokes = Array.from(strokeMap.values());
-        const mergedObjects = Array.from(objectMap.values());
+        const mergedStrokes = Array.from(strokeMap.values()).map((stroke) => ({
+          ...stroke,
+          layerId: mergedLayerIds.has(stroke.layerId)
+            ? stroke.layerId
+            : canvasId,
+        }));
+        const mergedObjects = Array.from(objectMap.values()).map(
+          (canvasObject) => ({
+            ...canvasObject,
+            layerId: mergedLayerIds.has(canvasObject.layerId)
+              ? canvasObject.layerId
+              : canvasId,
+          }),
+        );
 
-        await applyScene(mergedStrokes, mergedObjects);
+        await applyScene(mergedStrokes, mergedObjects, mergedLayers);
         try {
           await Promise.all([
             clearStrokes(projectId),
@@ -1204,12 +1388,21 @@ export function PhaseOneCanvas({
             ...mergedObjects.map((canvasObject) =>
               saveCanvasObject(projectId, canvasObject),
             ),
+            ...mergedLayers.map((layer) => saveCanvasLayer(projectId, layer)),
           ]);
         } catch {
           // The private remote scene remains usable when the local cache fails.
         }
 
         const remoteStrokeIds = new Set(remote.strokes.map((stroke) => stroke.id));
+        const remoteLayerIds = new Set(remote.layers.map((layer) => layer.id));
+        localLayers
+          .filter((layer) => !remoteLayerIds.has(layer.id))
+          .forEach((layer) => {
+            queueRemoteSync(() =>
+              saveRemoteLayer(supabase, remoteContext, layer),
+            );
+          });
         localStrokes
           .filter((stroke) => !remoteStrokeIds.has(stroke.id))
           .forEach((stroke, index) => {
@@ -1285,6 +1478,7 @@ export function PhaseOneCanvas({
       }
     };
   }, [
+    canvasId,
     projectId,
     queueRemoteSync,
     remoteContext,
@@ -1410,6 +1604,7 @@ export function PhaseOneCanvas({
         const stroke = strokesRef.current[index];
 
         if (
+          stroke.layerId !== activeLayerIdRef.current ||
           erasedStrokeIdsRef.current.has(stroke.id) ||
           !hitTestStroke(point, stroke, radius)
         ) {
@@ -1455,7 +1650,18 @@ export function PhaseOneCanvas({
         selectedObject &&
         isResizeHandle(point, selectedObject, viewportRef.current.scale)
           ? selectedObject
-          : hitTestObject(point, objectsRef.current);
+          : hitTestObject(
+              point,
+              objectsRef.current.filter((canvasObject) =>
+                layersRef.current.some(
+                  (layer) =>
+                    layer.id === canvasObject.layerId &&
+                    layer.visible &&
+                    layer.opacity > 0,
+                ),
+              ),
+              layersRef.current,
+            );
 
       if (!target) {
         selectedObjectIdRef.current = null;
@@ -1466,6 +1672,8 @@ export function PhaseOneCanvas({
 
       selectedObjectIdRef.current = target.id;
       setSelectedObjectId(target.id);
+      activeLayerIdRef.current = target.layerId;
+      setActiveLayerId(target.layerId);
       objectTransformRef.current = {
         pointerId: event.pointerId,
         kind:
@@ -1498,6 +1706,7 @@ export function PhaseOneCanvas({
 
     const stroke: Stroke = {
       id: strokeId,
+      layerId: activeLayerIdRef.current,
       points,
       color: brushSettingsRef.current.color,
       width: brushSettingsRef.current.size,
@@ -2108,6 +2317,7 @@ export function PhaseOneCanvas({
         const height = prepared.height * Math.min(1, displayScale);
         const canvasObject: CanvasImageObject = {
           id: createUuid(),
+          layerId: activeLayerIdRef.current,
           type: "image",
           x: (WORLD_WIDTH - width) / 2,
           y: (WORLD_HEIGHT - height) / 2,
@@ -2169,6 +2379,7 @@ export function PhaseOneCanvas({
     try {
       const bundle = await renderSnapshotBundle({
         selection: currentSelection,
+        layers: layersRef.current,
         strokes: strokesRef.current,
         objects: objectsRef.current,
         imageSources: imageSourcesRef.current,
@@ -2181,7 +2392,12 @@ export function PhaseOneCanvas({
         remoteContext,
         currentSelection,
         bundle,
-        `${Date.now().toString(36)}:${strokesRef.current.length}:${objectsRef.current.length}`,
+        `${Date.now().toString(36)}:${strokesRef.current.length}:${objectsRef.current.length}:${layersRef.current
+          .map(
+            (layer) =>
+              `${layer.id}:${layer.order}:${layer.visible ? 1 : 0}:${layer.opacity}`,
+          )
+          .join(",")}`,
       );
       const nextSnapshots = {
         selectionUrl: URL.createObjectURL(bundle.selection),
@@ -2462,6 +2678,7 @@ export function PhaseOneCanvas({
           : (WORLD_WIDTH - width) / 2;
         const canvasObject: CanvasImageObject = {
           id: createUuid(),
+          layerId: activeLayerIdRef.current,
           type: "image",
           x: Math.max(0, Math.min(WORLD_WIDTH - width, proposedX)),
           y: Math.max(
@@ -2611,10 +2828,16 @@ export function PhaseOneCanvas({
 
       <section className="prototype-workspace">
         <CanvasToolbar
+          activeLayerId={activeLayerId}
           brushSettings={brushSettings}
+          layers={layers}
           onBrushSettingsChange={setBrushSettings}
           onFit={fitToScreen}
           onImport={() => fileInputRef.current?.click()}
+          onLayerActivate={activateLayer}
+          onLayerAdd={addLayer}
+          onLayerChange={changeLayer}
+          onLayerMove={moveLayer}
           onRedo={redo}
           onToolChange={handleToolChange}
           onUndo={undo}

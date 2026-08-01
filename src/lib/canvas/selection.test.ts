@@ -42,6 +42,7 @@ describe("selection geometry", () => {
   it("hit-tests the complete stroke path rather than only stored points", () => {
     const stroke: Stroke = {
       id: "stroke",
+      layerId: "layer",
       points: [
         { x: 0, y: 0, pressure: 0.5, time: 0 },
         { x: 100, y: 0, pressure: 0.5, time: 1 },

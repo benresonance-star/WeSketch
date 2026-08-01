@@ -4,6 +4,7 @@ import {
   Hand,
   ImagePlus,
   LassoSelect,
+  Layers as LayersIcon,
   Maximize,
   MousePointer2,
   PenLine,
@@ -17,17 +18,24 @@ import {
   BrushPalette,
   type BrushPaletteLayout,
 } from "@/components/canvas/BrushPalette";
-import type { BrushSettings, Tool } from "@/types/canvas";
+import { LayersPanel } from "@/components/canvas/LayersPanel";
+import type { BrushSettings, CanvasLayer, Tool } from "@/types/canvas";
 
 type CanvasToolbarProps = {
   tool: Tool;
   brushSettings: BrushSettings;
+  layers: CanvasLayer[];
+  activeLayerId: string;
   onBrushSettingsChange: (settings: BrushSettings) => void;
   onToolChange: (tool: Tool) => void;
   onImport: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onFit: () => void;
+  onLayerActivate: (id: string) => void;
+  onLayerAdd: () => void;
+  onLayerChange: (layer: CanvasLayer) => void;
+  onLayerMove: (id: string, direction: "up" | "down") => void;
 };
 
 const TOOLS: Array<{
@@ -52,14 +60,21 @@ const BRUSH_PALETTE_LAYOUT_KEY = "wesketch-brush-palette-layout-v1";
 export function CanvasToolbar({
   tool,
   brushSettings,
+  layers,
+  activeLayerId,
   onBrushSettingsChange,
   onToolChange,
   onImport,
   onUndo,
   onRedo,
   onFit,
+  onLayerActivate,
+  onLayerAdd,
+  onLayerChange,
+  onLayerMove,
 }: CanvasToolbarProps) {
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [isLayersOpen, setIsLayersOpen] = useState(false);
   const [paletteLayout, setPaletteLayout] =
     useState<BrushPaletteLayout>("standard");
 
@@ -135,6 +150,15 @@ export function CanvasToolbar({
             </Fragment>
           );
         })}
+        <button
+          aria-expanded={isLayersOpen}
+          className={isLayersOpen ? "tool-button active" : "tool-button"}
+          onClick={() => setIsLayersOpen((current) => !current)}
+          type="button"
+        >
+          <LayersIcon aria-hidden="true" className="tool-icon" />
+          Layers
+        </button>
         <div className="tool-divider" />
         <button className="tool-button" onClick={onImport} type="button">
           <ImagePlus aria-hidden="true" className="tool-icon" />
@@ -160,6 +184,17 @@ export function CanvasToolbar({
           onClose={() => setIsPaletteOpen(false)}
           onLayoutChange={changePaletteLayout}
           settings={brushSettings}
+        />
+      ) : null}
+      {isLayersOpen ? (
+        <LayersPanel
+          activeLayerId={activeLayerId}
+          layers={layers}
+          onActivate={onLayerActivate}
+          onAdd={onLayerAdd}
+          onChange={onLayerChange}
+          onClose={() => setIsLayersOpen(false)}
+          onMove={onLayerMove}
         />
       ) : null}
     </>

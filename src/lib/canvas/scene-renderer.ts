@@ -1,5 +1,10 @@
 import { midpoint, type Viewport } from "@/lib/canvas/geometry";
-import type { Bounds, CanvasImageObject, Stroke } from "@/types/canvas";
+import type {
+  Bounds,
+  CanvasImageObject,
+  CanvasLayer,
+  Stroke,
+} from "@/types/canvas";
 
 type SurfaceSize = {
   width: number;
@@ -7,6 +12,7 @@ type SurfaceSize = {
 };
 
 type Scene = {
+  layers?: CanvasLayer[];
   strokes: Stroke[];
   objects: CanvasImageObject[];
   imageSources: Map<string, CanvasImageSource>;
@@ -16,6 +22,12 @@ type WorldSize = {
   width: number;
   height: number;
 };
+
+export function orderedVisibleLayers(layers: CanvasLayer[]): CanvasLayer[] {
+  return [...layers]
+    .filter((layer) => layer.visible && layer.opacity > 0)
+    .sort((first, second) => first.order - second.order);
+}
 
 export function strokeWidthAtPressure(
   baseWidth: number,
@@ -130,6 +142,30 @@ function drawContent(
   context: CanvasRenderingContext2D,
   scene: Scene,
 ): void {
+  if (scene.layers && scene.layers.length > 0) {
+    for (const layer of orderedVisibleLayers(scene.layers)) {
+      context.save();
+      context.globalAlpha *= layer.opacity;
+      const layerObjects = scene.objects
+        .filter((canvasObject) => canvasObject.layerId === layer.id)
+        .sort((first, second) => first.zIndex - second.zIndex);
+      for (const canvasObject of layerObjects) {
+        drawObject(
+          context,
+          canvasObject,
+          scene.imageSources.get(canvasObject.id),
+        );
+      }
+      for (const stroke of scene.strokes) {
+        if (stroke.layerId === layer.id) {
+          drawStroke(context, stroke);
+        }
+      }
+      context.restore();
+    }
+    return;
+  }
+
   const sortedObjects = [...scene.objects].sort(
     (first, second) => first.zIndex - second.zIndex,
   );
