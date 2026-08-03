@@ -168,19 +168,6 @@ function ProjectCard({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {sortable ? (
-        <button
-          aria-label={`Reorder ${project.title}`}
-          className="project-card-drag-handle"
-          data-tooltip="Drag to reorder"
-          draggable
-          onDragEnd={onDragHandleEnd}
-          onDragStart={handleDragStart}
-          type="button"
-        >
-          <GripVertical aria-hidden="true" strokeWidth={1.5} />
-        </button>
-      ) : null}
       <a
         className="project-card-link"
         href={`/projects/${project.id}`}
@@ -199,6 +186,20 @@ function ProjectCard({
             <span className="project-card-preview-empty">No preview yet</span>
           )}
         </div>
+      </a>
+      <div className="project-card-footer">
+        {sortable ? (
+          <button
+            aria-label={`Reorder ${project.title}`}
+            className="project-card-drag-handle"
+            draggable
+            onDragEnd={onDragHandleEnd}
+            onDragStart={handleDragStart}
+            type="button"
+          >
+            <GripVertical aria-hidden="true" strokeWidth={1.5} />
+          </button>
+        ) : null}
         <div className="project-card-body">
           {isEditing ? (
             <input
@@ -208,7 +209,6 @@ function ProjectCard({
               maxLength={120}
               onBlur={commitRename}
               onChange={(event) => setDraftTitle(event.target.value)}
-              onClick={(event) => event.preventDefault()}
               onKeyDown={handleTitleKeyDown}
               value={draftTitle}
             />
@@ -217,43 +217,43 @@ function ProjectCard({
           )}
           <small>Updated {formatUpdatedDate(project.updatedAt)}</small>
         </div>
-      </a>
-      <div className="project-card-actions">
-        {!archived ? (
-          <>
+        <div className="project-card-actions">
+          {!archived ? (
+            <>
+              <button
+                aria-label={`Rename ${project.title}`}
+                className="project-card-action"
+                data-tooltip="Rename"
+                disabled={isPending}
+                onClick={() => setIsEditing(true)}
+                type="button"
+              >
+                <Pencil aria-hidden="true" strokeWidth={1.5} />
+              </button>
+              <button
+                aria-label={`Archive ${project.title}`}
+                className="project-card-action"
+                data-tooltip="Archive"
+                disabled={isPending}
+                onClick={() => onArchive(project.id)}
+                type="button"
+              >
+                <Archive aria-hidden="true" strokeWidth={1.5} />
+              </button>
+            </>
+          ) : (
             <button
-              aria-label={`Rename ${project.title}`}
+              aria-label={`Unarchive ${project.title}`}
               className="project-card-action"
-              data-tooltip="Rename"
+              data-tooltip="Unarchive"
               disabled={isPending}
-              onClick={() => setIsEditing(true)}
+              onClick={() => onUnarchive(project.id)}
               type="button"
             >
-              <Pencil aria-hidden="true" strokeWidth={1.5} />
+              <ArchiveRestore aria-hidden="true" strokeWidth={1.5} />
             </button>
-            <button
-              aria-label={`Archive ${project.title}`}
-              className="project-card-action"
-              data-tooltip="Archive"
-              disabled={isPending}
-              onClick={() => onArchive(project.id)}
-              type="button"
-            >
-              <Archive aria-hidden="true" strokeWidth={1.5} />
-            </button>
-          </>
-        ) : (
-          <button
-            aria-label={`Unarchive ${project.title}`}
-            className="project-card-action"
-            data-tooltip="Unarchive"
-            disabled={isPending}
-            onClick={() => onUnarchive(project.id)}
-            type="button"
-          >
-            <ArchiveRestore aria-hidden="true" strokeWidth={1.5} />
-          </button>
-        )}
+          )}
+        </div>
       </div>
     </article>
   );
