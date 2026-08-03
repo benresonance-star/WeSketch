@@ -1,4 +1,5 @@
 /* eslint-disable @next/next/no-html-link-for-pages -- Full reload prevents stale canvas state on iPadOS 16 Safari. */
+import { LayoutGrid } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
 import { PhaseOneCanvas } from "@/components/canvas/PhaseOneCanvas";
@@ -34,7 +35,16 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   return (
     <PhaseOneCanvas
-      backLink={<a href="/">Projects</a>}
+      backLink={
+        <a
+          aria-label="Projects"
+          className="canvas-back-link"
+          data-tooltip="Projects"
+          href="/"
+        >
+          <LayoutGrid aria-hidden="true" strokeWidth={1.5} />
+        </a>
+      }
       canvasId={canvasId}
       initialCanvasColor={canvasBackground?.color ?? "#fbfaf6"}
       key={canvasId}
