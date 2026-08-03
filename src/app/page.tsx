@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 
-import { createProjectAction, signOutAction } from "@/app/actions";
+import { ProjectsView } from "@/components/projects/ProjectsView";
 import { createClient } from "@/lib/supabase/server";
+
+type CanvasBackground = {
+  color?: string;
+};
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -13,63 +17,40 @@ export default async function HomePage() {
 
   const { data: projects, error } = await supabase
     .from("projects")
-    .select("id, title, updated_at")
+    .select(
+      "id, title, updated_at, archived_at, thumbnail_path, canvases ( background )",
+    )
     .order("updated_at", { ascending: false });
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return (
-    <main className="projects-shell">
-      <header className="projects-header">
-        <div>
-          <p className="eyebrow">Private workspace</p>
-          <h1>WeSketch projects</h1>
-        </div>
-        <form action={signOutAction}>
-          <button className="secondary-button" type="submit">
-            Sign out
-          </button>
-        </form>
-      </header>
+  const projectItems = await Promise.all(
+    (projects ?? []).map(async (project) => {
+      let thumbnailUrl: string | null = null;
 
-      <section className="projects-content">
-        <form action={createProjectAction} className="new-project-card">
-          <label htmlFor="project-title">New project</label>
-          <div>
-            <input
-              id="project-title"
-              maxLength={120}
-              name="title"
-              placeholder="Project title"
-              required
-            />
-            <button type="submit">Create project</button>
-          </div>
-        </form>
+      if (project.thumbnail_path) {
+        const { data: signedUrl } = await supabase.storage
+          .from("project-assets")
+          .createSignedUrl(project.thumbnail_path, 60 * 60);
+        thumbnailUrl = signedUrl?.signedUrl ?? null;
+      }
 
-        <div className="project-grid">
-          {projects?.map((project) => (
-            <a
-              className="project-card"
-              href={`/projects/${project.id}`}
-              key={project.id}
-            >
-              <span>{project.title}</span>
-              <small>
-                Updated{" "}
-                {new Date(project.updated_at).toLocaleDateString("en-AU")}
-              </small>
-            </a>
-          ))}
-          {projects?.length === 0 ? (
-            <p className="empty-state">
-              Create your first project to start sketching.
-            </p>
-          ) : null}
-        </div>
-      </section>
-    </main>
+      const canvasBackground = project.canvases?.[0]?.background as
+        | CanvasBackground
+        | undefined;
+
+      return {
+        id: project.id,
+        title: project.title,
+        updatedAt: project.updated_at,
+        archivedAt: project.archived_at,
+        thumbnailUrl,
+        canvasColor: canvasBackground?.color ?? "#fbfaf6",
+      };
+    }),
   );
+
+  return <ProjectsView projects={projectItems} />;
 }

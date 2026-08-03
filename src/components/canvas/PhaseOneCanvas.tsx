@@ -31,6 +31,10 @@ import {
   prepareImportedImage,
 } from "@/lib/canvas/images";
 import {
+  generationLayerName,
+  isImageGenerationIntent,
+} from "@/lib/canvas/generation";
+import {
   drawStroke,
   renderViewport,
 } from "@/lib/canvas/scene-renderer";
@@ -40,6 +44,7 @@ import {
   normalizeBounds,
   pointInBounds,
 } from "@/lib/canvas/selection";
+import { renderProjectThumbnail } from "@/lib/canvas/project-thumbnail";
 import { persistSelectionContext } from "@/lib/canvas/selection-persistence";
 import { renderSnapshotBundle } from "@/lib/canvas/snapshots";
 import {
@@ -64,6 +69,7 @@ import {
   deleteRemoteObject,
   deleteRemoteStroke,
   loadRemoteScene,
+  saveProjectThumbnail,
   saveRemoteObject,
   saveRemoteLayer,
   saveRemoteStroke,
@@ -78,10 +84,13 @@ import {
 import { createUuid, isUuid } from "@/lib/uuid";
 import type {
   BrushSettings,
+  Bounds,
   CanvasImageObject,
   CanvasLayer,
   CanvasSelection,
   ConversationMessage,
+  GenerationPlacement,
+  ImageGenerationIntent,
   ImageGenerationQuality,
   ImageGenerationSize,
   InteractionMode,
@@ -109,6 +118,21 @@ const LIGHT_WORKSPACE_COLOR = "#e9e7e2";
 const DARK_WORKSPACE_COLOR = "#191817";
 const UI_CONFIGURATION_STORAGE_KEY = "wesketch-ui-configurations-v1";
 const MIN_SELECTION_SIZE = 8;
+const THUMBNAIL_SAVE_DELAY_MS = 4000;
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName;
+
+  if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT") {
+    return true;
+  }
+
+  return target.isContentEditable;
+}
 
 type SurfaceSize = {
   width: number;
@@ -171,6 +195,44 @@ function base64ImageToBlob(base64: string): Blob {
     character.charCodeAt(0),
   );
   return new Blob([bytes], { type: "image/webp" });
+}
+
+function parseBounds(value: unknown): Bounds | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const candidate = value as Partial<Bounds>;
+  if (
+    typeof candidate.x !== "number" ||
+    typeof candidate.y !== "number" ||
+    typeof candidate.width !== "number" ||
+    typeof candidate.height !== "number" ||
+    !Number.isFinite(candidate.x) ||
+    !Number.isFinite(candidate.y) ||
+    !Number.isFinite(candidate.width) ||
+    !Number.isFinite(candidate.height) ||
+    candidate.width <= 0 ||
+    candidate.height <= 0
+  ) {
+    return undefined;
+  }
+  return {
+    x: candidate.x,
+    y: candidate.y,
+    width: candidate.width,
+    height: candidate.height,
+  };
+}
+
+function parseGenerationPlacement(value: unknown): GenerationPlacement | undefined {
+  const bounds = parseBounds(value);
+  const mode =
+    value && typeof value === "object"
+      ? (value as { mode?: unknown }).mode
+      : undefined;
+  return bounds && isImageGenerationIntent(mode)
+    ? { ...bounds, mode }
+    : undefined;
 }
 
 function configureCanvas(
@@ -348,6 +410,8 @@ export function PhaseOneCanvas({
   const pendingSyncCountRef = useRef(0);
   const syncChainRef = useRef<Promise<void>>(Promise.resolve());
   const generationAbortRef = useRef<AbortController | null>(null);
+  const thumbnailTimerRef = useRef<number | null>(null);
+  const thumbnailSaveRef = useRef<Promise<void>>(Promise.resolve());
   const snapshotsRef = useRef<SnapshotPreview | null>(null);
   const messageSelectionUrlsRef = useRef(new Set<string>());
   const brushSettingsRef = useRef(DEFAULT_BRUSH_SETTINGS);
@@ -416,7 +480,7 @@ export function PhaseOneCanvas({
 
       const { data: storedMessages } = await supabase
         .from("messages")
-        .select("id, role, content, selection_id, ai_run_id")
+        .select("id, role, content, selection_id, ai_run_id, parent_message_id")
         .eq("conversation_id", latestConversation.id)
         .order("created_at", { ascending: true });
       const selectionIds = Array.from(
@@ -427,10 +491,21 @@ export function PhaseOneCanvas({
         ),
       );
       const selectionUrls = new Map<string, string>();
+      const selectionGeometry = new Map<
+        string,
+        { type: CanvasSelection["type"]; bounds: Bounds }
+      >();
       const generatedArtifacts = new Map<
         string,
-        { artifactId: string; storagePath: string; url: string }
+        {
+          artifactId: string;
+          storagePath: string;
+          url: string;
+          intent?: ImageGenerationIntent;
+          placement?: GenerationPlacement;
+        }
       >();
+      const generationIntents = new Map<string, ImageGenerationIntent>();
       const latestContexts = new Map<
         string,
         {
@@ -443,6 +518,23 @@ export function PhaseOneCanvas({
       let restoredSnapshots: SnapshotPreview | null = null;
 
       if (selectionIds.length > 0) {
+        const { data: storedSelections } = await supabase
+          .from("selections")
+          .select("id, selection_type, bounds")
+          .in("id", selectionIds);
+        (storedSelections ?? []).forEach((storedSelection) => {
+          const bounds = parseBounds(storedSelection.bounds);
+          if (
+            bounds &&
+            (storedSelection.selection_type === "rectangle" ||
+              storedSelection.selection_type === "lasso")
+          ) {
+            selectionGeometry.set(storedSelection.id, {
+              type: storedSelection.selection_type,
+              bounds,
+            });
+          }
+        });
         const { data: contexts } = await supabase
           .from("context_snapshots")
           .select(
@@ -499,6 +591,8 @@ export function PhaseOneCanvas({
               canvasUrl: URL.createObjectURL(restored[2].data!),
               contextSnapshotId: activeContext.id,
               selectionId: activeSelectionId,
+              selectionType: selectionGeometry.get(activeSelectionId)?.type,
+              selectionBounds: selectionGeometry.get(activeSelectionId)?.bounds,
             };
           }
         }
@@ -511,9 +605,24 @@ export function PhaseOneCanvas({
         ),
       );
       if (aiRunIds.length > 0) {
+        const { data: aiRuns } = await supabase
+          .from("ai_runs")
+          .select("id, action, request_metadata")
+          .in("id", aiRunIds);
+        (aiRuns ?? []).forEach((aiRun) => {
+          const metadata = aiRun.request_metadata as {
+            intent?: unknown;
+          } | null;
+          const intent = isImageGenerationIntent(metadata?.intent)
+            ? metadata.intent
+            : aiRun.action === "transform"
+              ? "in_place"
+              : "beside";
+          generationIntents.set(aiRun.id, intent);
+        });
         const { data: artifacts } = await supabase
           .from("artifacts")
-          .select("id, source_ai_run_id, storage_path")
+          .select("id, source_ai_run_id, storage_path, metadata")
           .eq("artifact_type", "generated_image")
           .in("source_ai_run_id", aiRunIds);
         await Promise.all(
@@ -531,6 +640,15 @@ export function PhaseOneCanvas({
                 artifactId: artifact.id,
                 storagePath: artifact.storage_path,
                 url,
+                intent: isImageGenerationIntent(
+                  (artifact.metadata as { intent?: unknown } | null)?.intent,
+                )
+                  ? (artifact.metadata as { intent: ImageGenerationIntent }).intent
+                  : generationIntents.get(artifact.source_ai_run_id),
+                placement: parseGenerationPlacement(
+                  (artifact.metadata as { placement?: unknown } | null)
+                    ?.placement,
+                ),
               });
             }
           }),
@@ -547,6 +665,15 @@ export function PhaseOneCanvas({
           setSnapshotState("ready");
         }
         setConversationId(latestConversation.id);
+        const userGenerationIntents = new Map<string, ImageGenerationIntent>();
+        (storedMessages ?? []).forEach((message) => {
+          if (message.parent_message_id && message.ai_run_id) {
+            const intent = generationIntents.get(message.ai_run_id);
+            if (intent) {
+              userGenerationIntents.set(message.parent_message_id, intent);
+            }
+          }
+        });
         setMessages(
           (storedMessages ?? []).map((message) => ({
             id: message.id,
@@ -566,6 +693,18 @@ export function PhaseOneCanvas({
             generatedStoragePath: message.ai_run_id
               ? generatedArtifacts.get(message.ai_run_id)?.storagePath
               : undefined,
+            generationIntent: message.ai_run_id
+              ? generatedArtifacts.get(message.ai_run_id)?.intent ??
+                generationIntents.get(message.ai_run_id)
+              : userGenerationIntents.get(message.id),
+            generationPlacement: message.ai_run_id
+              ? generatedArtifacts.get(message.ai_run_id)?.placement
+              : undefined,
+            insertionStatus:
+              message.ai_run_id &&
+              generatedArtifacts.get(message.ai_run_id)?.intent === "in_place"
+                ? "inserted"
+                : undefined,
           })),
         );
       } else if (restoredSnapshots) {
@@ -587,6 +726,8 @@ export function PhaseOneCanvas({
     };
   }, []);
 
+  const scheduleThumbnailSaveRef = useRef<(() => void) | null>(null);
+
   const queueRemoteSync = useCallback((operation: () => Promise<void>) => {
     pendingSyncCountRef.current += 1;
     setStats((current) => ({
@@ -601,6 +742,7 @@ export function PhaseOneCanvas({
         pendingSyncCountRef.current -= 1;
         if (pendingSyncCountRef.current === 0) {
           setStats((current) => ({ ...current, persistenceState: "saved" }));
+          scheduleThumbnailSaveRef.current?.();
         }
       })
       .catch((error: unknown) => {
@@ -612,6 +754,33 @@ export function PhaseOneCanvas({
         }));
       });
   }, []);
+
+  const saveProjectThumbnailSnapshot = useCallback(async () => {
+    const thumbnail = await renderProjectThumbnail({
+      strokes: strokesRef.current,
+      objects: objectsRef.current,
+      layers: layersRef.current,
+      imageSources: imageSourcesRef.current,
+      backgroundColor: canvasColorRef.current,
+    });
+    await saveProjectThumbnail(supabase, remoteContext, thumbnail);
+  }, [remoteContext, supabase]);
+
+  const scheduleThumbnailSave = useCallback(() => {
+    if (thumbnailTimerRef.current !== null) {
+      window.clearTimeout(thumbnailTimerRef.current);
+    }
+
+    thumbnailTimerRef.current = window.setTimeout(() => {
+      thumbnailTimerRef.current = null;
+      thumbnailSaveRef.current = thumbnailSaveRef.current
+        .catch(() => undefined)
+        .then(() => saveProjectThumbnailSnapshot())
+        .catch(() => undefined);
+    }, THUMBNAIL_SAVE_DELAY_MS);
+  }, [saveProjectThumbnailSnapshot]);
+
+  scheduleThumbnailSaveRef.current = scheduleThumbnailSave;
 
   const invalidateSnapshots = useCallback(() => {
     if (snapshotsRef.current) {
@@ -1426,6 +1595,7 @@ export function PhaseOneCanvas({
         );
 
         await applyScene(mergedStrokes, mergedObjects, mergedLayers);
+        scheduleThumbnailSave();
         try {
           await Promise.all([
             clearStrokes(projectId),
@@ -1515,6 +1685,10 @@ export function PhaseOneCanvas({
     return () => {
       cancelled = true;
 
+      if (thumbnailTimerRef.current !== null) {
+        window.clearTimeout(thumbnailTimerRef.current);
+      }
+
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current);
       }
@@ -1531,6 +1705,7 @@ export function PhaseOneCanvas({
     queueRemoteSync,
     remoteContext,
     scheduleRender,
+    scheduleThumbnailSave,
     supabase,
   ]);
 
@@ -2345,6 +2520,34 @@ export function PhaseOneCanvas({
     applyHistoryCommand(command, true);
   }, [applyHistoryCommand]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) {
+        return;
+      }
+
+      if (isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+
+      if (event.key.toLowerCase() !== "z") {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (event.shiftKey) {
+        redo();
+        return;
+      }
+
+      undo();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [redo, undo]);
+
   const deleteSelectedObject = useCallback(() => {
     const objectId = selectedObjectIdRef.current;
     const index = objectsRef.current.findIndex(
@@ -2570,6 +2773,8 @@ export function PhaseOneCanvas({
         canvasUrl: URL.createObjectURL(bundle.canvas),
         contextSnapshotId: persisted.id,
         selectionId: persisted.selectionId,
+        selectionType: currentSelection.type,
+        selectionBounds: { ...currentSelection.bounds },
       };
 
       if (snapshotsRef.current) {
@@ -2698,11 +2903,186 @@ export function PhaseOneCanvas({
     prompt,
   ]);
 
-  const generateImage = useCallback(async () => {
+  const addGeneratedImageToCanvas = useCallback(
+    async (message: ConversationMessage): Promise<boolean> => {
+      if (
+        !message.generatedImageUrl ||
+        !message.artifactId ||
+        !message.generatedStoragePath
+      ) {
+        setAiError("This generated image is missing its saved artifact details.");
+        return false;
+      }
+
+      try {
+        const blob = await fetch(message.generatedImageUrl).then((response) =>
+          response.blob(),
+        );
+        const source = await decodeImageBlob(blob);
+        const inPlace = message.generationIntent === "in_place";
+        const placement = message.generationPlacement;
+        if (inPlace && placement?.mode !== "in_place") {
+          source.close();
+          throw new Error("This generation is missing its in-place selection bounds.");
+        }
+
+        let layerId = activeLayerIdRef.current;
+        let generatedLayerId = message.generatedLayerId;
+        if (inPlace) {
+          const existingLayer = generatedLayerId
+            ? layersRef.current.find((layer) => layer.id === generatedLayerId)
+            : undefined;
+          if (existingLayer) {
+            layerId = existingLayer.id;
+          } else {
+            const generationLayer: CanvasLayer = {
+              id: createUuid(),
+              name: generationLayerName(layersRef.current),
+              order:
+                layersRef.current.reduce(
+                  (highest, layer) => Math.max(highest, layer.order),
+                  -1,
+                ) + 1,
+              opacity: 1,
+              visible: true,
+              createdAt: Date.now(),
+            };
+            generatedLayerId = generationLayer.id;
+            layerId = generationLayer.id;
+            persistLayerChanges(
+              [...layersRef.current, generationLayer],
+              [generationLayer],
+            );
+            setMessages((current) =>
+              current.map((currentMessage) =>
+                currentMessage.id === message.id
+                  ? { ...currentMessage, generatedLayerId }
+                  : currentMessage,
+              ),
+            );
+          }
+        }
+
+        const maximumEdge = 720;
+        const scale = Math.min(
+          1,
+          maximumEdge / Math.max(source.width, source.height),
+        );
+        const adjacentWidth = source.width * scale;
+        const adjacentHeight = source.height * scale;
+        const activeBounds = selectionRef.current?.bounds;
+        const proposedX = activeBounds
+          ? activeBounds.x + activeBounds.width + 48
+          : (WORLD_WIDTH - adjacentWidth) / 2;
+        const canvasObject: CanvasImageObject = {
+          id: createUuid(),
+          layerId,
+          type: "image",
+          x:
+            inPlace && placement
+              ? placement.x
+              : Math.max(0, Math.min(WORLD_WIDTH - adjacentWidth, proposedX)),
+          y:
+            inPlace && placement
+              ? placement.y
+              : Math.max(
+                  0,
+                  Math.min(
+                    WORLD_HEIGHT - adjacentHeight,
+                    activeBounds?.y ?? (WORLD_HEIGHT - adjacentHeight) / 2,
+                  ),
+                ),
+          width: inPlace && placement ? placement.width : adjacentWidth,
+          height: inPlace && placement ? placement.height : adjacentHeight,
+          rotation: 0,
+          zIndex:
+            objectsRef.current.reduce(
+              (highest, item) => Math.max(highest, item.zIndex),
+              0,
+            ) + 1,
+          opacity: 1,
+          blob,
+          artifactId: message.artifactId,
+          storagePath: message.generatedStoragePath,
+          mimeType: "image/webp",
+          createdAt: Date.now(),
+        };
+
+        imageSourcesRef.current.set(canvasObject.id, source);
+        objectsRef.current = [...objectsRef.current, canvasObject];
+        historyRef.current.push({ type: "object-add", object: canvasObject });
+        redoRef.current = [];
+        if (!inPlace) {
+          selectedObjectIdRef.current = canvasObject.id;
+          setSelectedObjectId(canvasObject.id);
+          setTool("object");
+        }
+        setAiError(null);
+        invalidateSnapshots();
+        await saveCanvasObject(projectId, canvasObject);
+        queueRemoteSync(async () => {
+          const saved = await saveRemoteObject(
+            supabase,
+            remoteContext,
+            canvasObject,
+          );
+          objectsRef.current = objectsRef.current.map((current) =>
+            current.id === saved.id ? saved : current,
+          );
+          await saveCanvasObject(projectId, saved);
+        });
+        scheduleRender();
+        if (inPlace) {
+          setMessages((current) =>
+            current.map((currentMessage) =>
+              currentMessage.id === message.id
+                ? {
+                    ...currentMessage,
+                    insertionStatus: "inserted",
+                    generatedLayerId,
+                  }
+                : currentMessage,
+            ),
+          );
+        }
+        return true;
+      } catch (error) {
+        setAiError(errorMessage(error));
+        if (message.generationIntent === "in_place") {
+          setMessages((current) =>
+            current.map((currentMessage) =>
+              currentMessage.id === message.id
+                ? { ...currentMessage, insertionStatus: "failed" }
+                : currentMessage,
+            ),
+          );
+        }
+        return false;
+      }
+    },
+    [
+      invalidateSnapshots,
+      persistLayerChanges,
+      projectId,
+      queueRemoteSync,
+      remoteContext,
+      scheduleRender,
+      supabase,
+    ],
+  );
+
+  const generateImage = useCallback(async (intent: ImageGenerationIntent) => {
     const contextSnapshotId = snapshotsRef.current?.contextSnapshotId;
     const selectionId = snapshotsRef.current?.selectionId;
     const trimmedPrompt = prompt.trim();
     if (!contextSnapshotId || !selectionId || !trimmedPrompt || aiState !== "idle") {
+      return;
+    }
+    if (
+      intent === "in_place" &&
+      snapshotsRef.current?.selectionType !== "rectangle"
+    ) {
+      setAiError("In-place generation currently requires a rectangular selection.");
       return;
     }
 
@@ -2720,15 +3100,17 @@ export function PhaseOneCanvas({
       }
     }
 
+    const userMessage: ConversationMessage = {
+      id: createUuid(),
+      role: "user",
+      content: trimmedPrompt,
+      selectionId,
+      selectionUrl: messageSelectionUrl,
+      generationIntent: intent,
+    };
     setMessages((current) => [
       ...current,
-      {
-        id: createUuid(),
-        role: "user",
-        content: trimmedPrompt,
-        selectionId,
-        selectionUrl: messageSelectionUrl,
-      },
+      userMessage,
     ]);
     setPrompt("");
     setAiError(null);
@@ -2751,6 +3133,7 @@ export function PhaseOneCanvas({
           includeCanvas,
           imageQuality,
           imageSize,
+          intent,
         }),
         signal: abortController.signal,
       });
@@ -2762,6 +3145,8 @@ export function PhaseOneCanvas({
         storagePath?: string;
         imageBase64?: string;
         text?: string;
+        intent?: ImageGenerationIntent;
+        placement?: GenerationPlacement;
       };
       if (!response.ok || !data.imageBase64) {
         throw new Error(data.error ?? `Image generation failed (${response.status}).`);
@@ -2774,18 +3159,22 @@ export function PhaseOneCanvas({
         base64ImageToBlob(data.imageBase64),
       );
       messageSelectionUrlsRef.current.add(generatedImageUrl);
-      setMessages((current) => [
-        ...current,
-        {
-          id: data.messageId ?? createUuid(),
-          role: "assistant",
-          content: data.text ?? "Generated one visual alternative.",
-          selectionId,
-          generatedImageUrl,
-          artifactId: data.artifactId,
-          generatedStoragePath: data.storagePath,
-        },
-      ]);
+      const assistantMessage: ConversationMessage = {
+        id: data.messageId ?? createUuid(),
+        role: "assistant",
+        content: data.text ?? "Generated one visual alternative.",
+        selectionId,
+        generatedImageUrl,
+        artifactId: data.artifactId,
+        generatedStoragePath: data.storagePath,
+        generationIntent: data.intent ?? intent,
+        generationPlacement: data.placement,
+        insertionStatus: intent === "in_place" ? "pending" : undefined,
+      };
+      setMessages((current) => [...current, assistantMessage]);
+      if (intent === "in_place") {
+        await addGeneratedImageToCanvas(assistantMessage);
+      }
     } catch (error) {
       setAiError(
         abortController.signal.aborted
@@ -2806,6 +3195,7 @@ export function PhaseOneCanvas({
     includeNeighbourhood,
     imageQuality,
     imageSize,
+    addGeneratedImageToCanvas,
     projectId,
     prompt,
   ]);
@@ -2813,97 +3203,6 @@ export function PhaseOneCanvas({
   const cancelImageGeneration = useCallback(() => {
     generationAbortRef.current?.abort();
   }, []);
-
-  const addGeneratedImageToCanvas = useCallback(
-    async (message: ConversationMessage) => {
-      if (
-        !message.generatedImageUrl ||
-        !message.artifactId ||
-        !message.generatedStoragePath
-      ) {
-        setAiError("This generated image is missing its saved artifact details.");
-        return;
-      }
-
-      try {
-        const blob = await fetch(message.generatedImageUrl).then((response) =>
-          response.blob(),
-        );
-        const source = await decodeImageBlob(blob);
-        const maximumEdge = 720;
-        const scale = Math.min(
-          1,
-          maximumEdge / Math.max(source.width, source.height),
-        );
-        const width = source.width * scale;
-        const height = source.height * scale;
-        const activeBounds = selectionRef.current?.bounds;
-        const proposedX = activeBounds
-          ? activeBounds.x + activeBounds.width + 48
-          : (WORLD_WIDTH - width) / 2;
-        const canvasObject: CanvasImageObject = {
-          id: createUuid(),
-          layerId: activeLayerIdRef.current,
-          type: "image",
-          x: Math.max(0, Math.min(WORLD_WIDTH - width, proposedX)),
-          y: Math.max(
-            0,
-            Math.min(
-              WORLD_HEIGHT - height,
-              activeBounds?.y ?? (WORLD_HEIGHT - height) / 2,
-            ),
-          ),
-          width,
-          height,
-          rotation: 0,
-          zIndex:
-            objectsRef.current.reduce(
-              (highest, item) => Math.max(highest, item.zIndex),
-              0,
-            ) + 1,
-          opacity: 1,
-          blob,
-          artifactId: message.artifactId,
-          storagePath: message.generatedStoragePath,
-          mimeType: "image/webp",
-          createdAt: Date.now(),
-        };
-
-        imageSourcesRef.current.set(canvasObject.id, source);
-        objectsRef.current = [...objectsRef.current, canvasObject];
-        historyRef.current.push({ type: "object-add", object: canvasObject });
-        redoRef.current = [];
-        selectedObjectIdRef.current = canvasObject.id;
-        setSelectedObjectId(canvasObject.id);
-        setTool("object");
-        setAiError(null);
-        invalidateSnapshots();
-        await saveCanvasObject(projectId, canvasObject);
-        queueRemoteSync(async () => {
-          const saved = await saveRemoteObject(
-            supabase,
-            remoteContext,
-            canvasObject,
-          );
-          objectsRef.current = objectsRef.current.map((current) =>
-            current.id === saved.id ? saved : current,
-          );
-          await saveCanvasObject(projectId, saved);
-        });
-        scheduleRender();
-      } catch (error) {
-        setAiError(errorMessage(error));
-      }
-    },
-    [
-      invalidateSnapshots,
-      projectId,
-      queueRemoteSync,
-      remoteContext,
-      scheduleRender,
-      supabase,
-    ],
-  );
 
   const clearDocument = useCallback(() => {
     const tombstones = Promise.all([

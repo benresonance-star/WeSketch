@@ -40,6 +40,17 @@ export type Bounds = {
   height: number;
 };
 
+export type ImageGenerationIntent = "beside" | "in_place";
+
+export type GenerationPlacement = Bounds & {
+  mode: ImageGenerationIntent;
+};
+
+export type GenerationInsertionStatus =
+  | "pending"
+  | "inserted"
+  | "failed";
+
 export type CanvasImageObject = Bounds & {
   id: string;
   layerId: string;
@@ -80,6 +91,8 @@ export type SnapshotPreview = {
   canvasUrl: string;
   contextSnapshotId?: string;
   selectionId?: string;
+  selectionType?: CanvasSelection["type"];
+  selectionBounds?: Bounds;
 };
 
 export type ConversationMessage = {
@@ -91,6 +104,10 @@ export type ConversationMessage = {
   generatedImageUrl?: string;
   artifactId?: string;
   generatedStoragePath?: string;
+  generationIntent?: ImageGenerationIntent;
+  generationPlacement?: GenerationPlacement;
+  insertionStatus?: GenerationInsertionStatus;
+  generatedLayerId?: string;
 };
 
 export type ImageGenerationQuality = "low" | "medium" | "high";

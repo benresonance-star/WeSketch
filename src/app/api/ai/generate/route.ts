@@ -3,16 +3,25 @@ import { Buffer } from "node:buffer";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, type UserContent } from "ai";
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 
+import {
+  closestImageGenerationSize,
+  isImageGenerationIntent,
+  outputSizeForBounds,
+} from "@/lib/canvas/generation";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  Bounds,
+  GenerationPlacement,
+  ImageGenerationIntent,
   ImageGenerationQuality,
   ImageGenerationSize,
 } from "@/types/canvas";
 
 export const maxDuration = 120;
 
-const PROMPT_VERSION = "image-generation-v1";
+const PROMPT_VERSION = "image-generation-v2";
 const MAX_PROMPT_LENGTH = 4_000;
 
 type GenerateRequest = {
@@ -26,7 +35,35 @@ type GenerateRequest = {
   includeCanvas?: boolean;
   imageQuality?: ImageGenerationQuality;
   imageSize?: ImageGenerationSize;
+  intent?: ImageGenerationIntent;
 };
+
+function parseBounds(value: unknown): Bounds | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const candidate = value as Partial<Bounds>;
+  if (
+    typeof candidate.x !== "number" ||
+    typeof candidate.y !== "number" ||
+    typeof candidate.width !== "number" ||
+    typeof candidate.height !== "number" ||
+    !Number.isFinite(candidate.x) ||
+    !Number.isFinite(candidate.y) ||
+    !Number.isFinite(candidate.width) ||
+    !Number.isFinite(candidate.height) ||
+    candidate.width <= 0 ||
+    candidate.height <= 0
+  ) {
+    return null;
+  }
+  return {
+    x: candidate.x,
+    y: candidate.y,
+    width: candidate.width,
+    height: candidate.height,
+  };
+}
 
 export async function POST(request: Request) {
   const body = (await request.json()) as GenerateRequest;
@@ -44,15 +81,19 @@ export async function POST(request: Request) {
   if (prompt.length > MAX_PROMPT_LENGTH) {
     return NextResponse.json({ error: "The prompt is too long." }, { status: 400 });
   }
+  if (body.intent !== undefined && !isImageGenerationIntent(body.intent)) {
+    return NextResponse.json({ error: "Unknown generation intent." }, { status: 400 });
+  }
 
   const apiKey = process.env.OPENAI_API_KEY;
   const modelName = process.env.OPENAI_CHAT_MODEL;
+  const intent = body.intent ?? "beside";
   const imageQuality: ImageGenerationQuality = ["low", "medium", "high"].includes(
     body.imageQuality ?? "",
   )
     ? body.imageQuality!
     : "low";
-  const imageSize: ImageGenerationSize = [
+  const configuredImageSize: ImageGenerationSize = [
     "1024x1024",
     "1536x1024",
     "1024x1536",
@@ -82,6 +123,30 @@ export async function POST(request: Request) {
   if (!contextSnapshot) {
     return NextResponse.json({ error: "Context snapshot was not found." }, { status: 404 });
   }
+  const { data: selection } = await supabase
+    .from("selections")
+    .select("selection_type, bounds")
+    .eq("id", body.selectionId)
+    .eq("canvas_id", body.canvasId)
+    .single();
+  const selectionBounds = parseBounds(selection?.bounds);
+  if (!selection || !selectionBounds) {
+    return NextResponse.json({ error: "Selection geometry was not found." }, { status: 404 });
+  }
+  if (intent === "in_place" && selection.selection_type !== "rectangle") {
+    return NextResponse.json(
+      { error: "In-place generation currently requires a rectangular selection." },
+      { status: 400 },
+    );
+  }
+  const imageSize =
+    intent === "in_place"
+      ? closestImageGenerationSize(selectionBounds)
+      : configuredImageSize;
+  const placement: GenerationPlacement = {
+    mode: intent,
+    ...selectionBounds,
+  };
 
   let conversationId = body.conversationId;
   if (conversationId) {
@@ -143,12 +208,14 @@ export async function POST(request: Request) {
       context_snapshot_id: body.contextSnapshotId,
       provider: "openai",
       model: modelName,
-      action: "generate",
+      action: intent === "in_place" ? "transform" : "generate",
       status: "running",
       prompt_version: PROMPT_VERSION,
       request_metadata: {
         image_quality: imageQuality,
         image_size: imageSize,
+        intent,
+        placement,
         included_images: [
           "selection",
           ...(body.includeNeighbourhood ? ["neighbourhood"] : []),
@@ -189,7 +256,10 @@ export async function POST(request: Request) {
     const content: UserContent = [
       {
         type: "text",
-        text: `Generate one useful visual design alternative. ${prompt}`,
+        text:
+          intent === "in_place"
+            ? `Transform the selected visual into one coherent design alternative that will replace the exact selected rectangle. Treat visible sketch marks as intentional design direction, preserve the selection's composition and viewpoint, and fill the full frame without borders or captions. ${prompt}`
+            : `Generate one useful visual design alternative. ${prompt}`,
       },
     ];
     requestedImages.forEach(({ label }, index) => {
@@ -225,7 +295,27 @@ export async function POST(request: Request) {
     }
 
     const storagePath = `${userId}/${body.projectId}/generated/${aiRun.id}.webp`;
-    const imageBuffer = Buffer.from(imageBase64, "base64");
+    const generatedImageBuffer = Buffer.from(imageBase64, "base64");
+    const targetSize =
+      intent === "in_place"
+        ? outputSizeForBounds(selectionBounds)
+        : await sharp(generatedImageBuffer)
+            .metadata()
+            .then((metadata) => ({
+              width: metadata.width ?? 1,
+              height: metadata.height ?? 1,
+            }));
+    const imageBuffer =
+      intent === "in_place"
+        ? await sharp(generatedImageBuffer)
+            .resize(targetSize.width, targetSize.height, {
+              fit: "cover",
+              position: "centre",
+            })
+            .webp({ quality: 90 })
+            .toBuffer()
+        : generatedImageBuffer;
+    const responseImageBase64 = imageBuffer.toString("base64");
     const { error: uploadError } = await supabase.storage
       .from("project-assets")
       .upload(storagePath, imageBuffer, {
@@ -245,8 +335,10 @@ export async function POST(request: Request) {
         artifact_type: "generated_image",
         storage_path: storagePath,
         mime_type: "image/webp",
+        width: targetSize.width,
+        height: targetSize.height,
         source_ai_run_id: aiRun.id,
-        metadata: { prompt },
+        metadata: { prompt, intent, placement },
       })
       .select("id")
       .single();
@@ -275,6 +367,12 @@ export async function POST(request: Request) {
         status: "completed",
         input_tokens: result.totalUsage.inputTokens,
         output_tokens: result.totalUsage.outputTokens,
+        response_metadata: {
+          artifact_id: artifact.id,
+          placement,
+          width: targetSize.width,
+          height: targetSize.height,
+        },
         completed_at: new Date().toISOString(),
       })
       .eq("id", aiRun.id);
@@ -288,8 +386,12 @@ export async function POST(request: Request) {
       messageId: assistantMessage?.id,
       artifactId: artifact.id,
       storagePath,
-      imageBase64,
+      imageBase64: responseImageBase64,
       text: assistantText,
+      intent,
+      placement,
+      imageWidth: targetSize.width,
+      imageHeight: targetSize.height,
     });
   } catch (error) {
     const cancelled = request.signal.aborted;

@@ -333,6 +333,35 @@ export async function deleteRemoteObject(
   });
 }
 
+export async function saveProjectThumbnail(
+  supabase: SupabaseClient,
+  context: RemoteSceneContext,
+  blob: Blob,
+): Promise<string> {
+  const storagePath = `${context.userId}/${context.projectId}/thumbnail.webp`;
+
+  await withRetry(async () => {
+    const { error } = await supabase.storage
+      .from(ASSET_BUCKET)
+      .upload(storagePath, blob, {
+        cacheControl: "3600",
+        contentType: "image/webp",
+        upsert: true,
+      });
+    throwIfError(error);
+  });
+
+  await withRetry(async () => {
+    const { error } = await supabase
+      .from("projects")
+      .update({ thumbnail_path: storagePath })
+      .eq("id", context.projectId);
+    throwIfError(error);
+  });
+
+  return storagePath;
+}
+
 export async function clearRemoteScene(
   supabase: SupabaseClient,
   context: RemoteSceneContext,

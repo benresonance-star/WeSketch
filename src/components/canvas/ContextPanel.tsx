@@ -46,7 +46,7 @@ type ContextPanelProps = {
   onPrepareContext: () => void;
   onPromptChange: (value: string) => void;
   onSendPrompt: () => void;
-  onGenerateImage: () => void;
+  onGenerateImage: (intent: "beside" | "in_place") => void;
   onCancelGeneration: () => void;
   onAddGeneratedImage: (message: ConversationMessage) => void;
   onClear: () => void;
@@ -385,6 +385,13 @@ export function ContextPanel({
                   <strong>
                     {message.role === "user" ? "You" : "WeSketch"}
                   </strong>
+                  {message.generationIntent ? (
+                    <span className="generation-intent">
+                      {message.generationIntent === "in_place"
+                        ? "In place"
+                        : "Beside canvas"}
+                    </span>
+                  ) : null}
                   {message.role === "user" && message.selectionUrl ? (
                     <figure className="conversation-context">
                       <Image
@@ -417,13 +424,32 @@ export function ContextPanel({
                         />
                         <span>Tap for full-size preview</span>
                       </a>
-                      <button
-                        className="add-generated-button"
-                        onClick={() => onAddGeneratedImage(message)}
-                        type="button"
-                      >
-                        Add to canvas
-                      </button>
+                      {message.generationIntent === "in_place" ? (
+                        <div className="generation-insertion-status">
+                          {message.insertionStatus === "pending"
+                            ? "Adding to a new layer…"
+                            : message.insertionStatus === "failed"
+                              ? "Could not add the layer."
+                              : "Added on its own layer."}
+                          {message.insertionStatus === "failed" ? (
+                            <button
+                              className="add-generated-button"
+                              onClick={() => onAddGeneratedImage(message)}
+                              type="button"
+                            >
+                              Retry adding in place
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <button
+                          className="add-generated-button"
+                          onClick={() => onAddGeneratedImage(message)}
+                          type="button"
+                        >
+                          Add to canvas
+                        </button>
+                      )}
                     </div>
                   ) : null}
                 </article>
@@ -465,23 +491,47 @@ export function ContextPanel({
         >
           {aiState === "streaming" ? "Thinking…" : "Send"}
         </button>
-        <button
-          className={`secondary ${
-            aiState === "generating" ? "is-generating" : ""
-          }`}
-          disabled={
-            aiState !== "generating" &&
-            (!snapshots?.contextSnapshotId ||
-              !prompt.trim() ||
-              aiState !== "idle")
-          }
-          onClick={
-            aiState === "generating" ? onCancelGeneration : onGenerateImage
-          }
-          type="button"
-        >
-          {aiState === "generating" ? "Stop generating" : "Generate image"}
-        </button>
+        {aiState === "generating" ? (
+          <button
+            className="secondary is-generating"
+            onClick={onCancelGeneration}
+            type="button"
+          >
+            Stop generating
+          </button>
+        ) : (
+          <div className="generation-actions">
+            <button
+              className="secondary"
+              disabled={
+                !snapshots?.contextSnapshotId ||
+                !prompt.trim() ||
+                aiState !== "idle"
+              }
+              onClick={() => onGenerateImage("beside")}
+              type="button"
+            >
+              Generate beside
+            </button>
+            <button
+              disabled={
+                !snapshots?.contextSnapshotId ||
+                snapshots.selectionType !== "rectangle" ||
+                !prompt.trim() ||
+                aiState !== "idle"
+              }
+              onClick={() => onGenerateImage("in_place")}
+              title={
+                snapshots?.selectionType === "lasso"
+                  ? "In-place generation currently requires a rectangle."
+                  : undefined
+              }
+              type="button"
+            >
+              Generate in place
+            </button>
+          </div>
+        )}
         {aiError ? <p className="error-note">{aiError}</p> : null}
       </form>
     </aside>
