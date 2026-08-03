@@ -714,6 +714,10 @@ select:focus-visible {
   -webkit-touch-callout: none;
 }
 
+.canvas-input-layer[data-tool="hand"] {
+  cursor: grab;
+}
+
 .contextual-actions {
   bottom: 52px;
   display: flex;

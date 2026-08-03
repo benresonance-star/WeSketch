@@ -9,7 +9,6 @@ import {
   type ChangeEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { Settings } from "lucide-react";
 
@@ -895,18 +894,32 @@ export function PhaseOneCanvas({
   }, [scheduleRender]);
 
   const handleWheelZoom = useCallback(
-    (event: ReactWheelEvent<HTMLCanvasElement>) => {
+    (event: WheelEvent) => {
       if (event.deltaY === 0) {
         return;
       }
+
       event.preventDefault();
-      const center = screenPointFromEvent(event, event.currentTarget);
+
+      const canvas = interactionCanvasRef.current;
+      if (!canvas) {
+        return;
+      }
+
+      const center = screenPointFromEvent(event, canvas);
       const currentViewport = viewportRef.current;
+      // DOM_DELTA_LINE (1) and DOM_DELTA_PAGE (2) need scaling to feel like pixel wheels.
+      const delta =
+        event.deltaMode === 1
+          ? event.deltaY * 16
+          : event.deltaMode === 2
+            ? event.deltaY * canvas.clientHeight
+            : event.deltaY;
       viewportRef.current = zoomViewport(
         currentViewport,
         center,
         center,
-        Math.exp(-event.deltaY * 0.0015),
+        Math.exp(-delta * 0.0015),
       );
       scheduleRender();
     },
@@ -1198,6 +1211,18 @@ export function PhaseOneCanvas({
       surface.removeEventListener("touchmove", preventNativeGesture);
     };
   }, [fitToScreen, scheduleRender]);
+
+  useEffect(() => {
+    const canvas = interactionCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    canvas.addEventListener("wheel", handleWheelZoom, { passive: false });
+    return () => {
+      canvas.removeEventListener("wheel", handleWheelZoom);
+    };
+  }, [handleWheelZoom]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1514,6 +1539,14 @@ export function PhaseOneCanvas({
     [projectId, queueRemoteSync, remoteContext, supabase],
   );
 
+  const clearPan = useCallback(() => {
+    panRef.current = null;
+    const canvas = interactionCanvasRef.current;
+    if (canvas) {
+      canvas.style.cursor = "";
+    }
+  }, []);
+
   const beginPinch = useCallback(() => {
     const touches = Array.from(pointersRef.current.values()).filter(
       (pointer) => pointer.pointerType === "touch",
@@ -1531,19 +1564,26 @@ export function PhaseOneCanvas({
       initialDistance: Math.max(1, distance(first.current, second.current)),
       initialViewport: { ...viewportRef.current },
     };
-    panRef.current = null;
+    clearPan();
     modeRef.current = "viewport";
-  }, []);
+  }, [clearPan]);
 
-  const beginPan = useCallback((pointerId: number, point: ScreenPoint) => {
-    panRef.current = {
-      pointerId,
-      initialPoint: point,
-      initialViewport: { ...viewportRef.current },
-    };
-    pinchRef.current = null;
-    modeRef.current = "viewport";
-  }, []);
+  const beginPan = useCallback(
+    (pointerId: number, point: ScreenPoint) => {
+      panRef.current = {
+        pointerId,
+        initialPoint: point,
+        initialViewport: { ...viewportRef.current },
+      };
+      pinchRef.current = null;
+      modeRef.current = "viewport";
+      const canvas = interactionCanvasRef.current;
+      if (canvas) {
+        canvas.style.cursor = "grabbing";
+      }
+    },
+    [],
+  );
 
   const beginStroke = useCallback(
     (event: PointerEvent) => {
@@ -1560,10 +1600,10 @@ export function PhaseOneCanvas({
       ];
       modeRef.current = "inking";
       pinchRef.current = null;
-      panRef.current = null;
+      clearPan();
       renderInteractions();
     },
-    [renderInteractions, stats.persistenceState],
+    [clearPan, renderInteractions, stats.persistenceState],
   );
 
   const beginSelection = useCallback(
@@ -1779,6 +1819,12 @@ export function PhaseOneCanvas({
           beginPan(event.pointerId, current);
         }
 
+        return;
+      }
+
+      // Middle mouse button pans without changing the active tool.
+      if (event.pointerType === "mouse" && event.button === 1) {
+        beginPan(event.pointerId, current);
         return;
       }
 
@@ -2074,13 +2120,14 @@ export function PhaseOneCanvas({
           modeRef.current = "idle";
         }
       } else if (panRef.current?.pointerId === event.pointerId) {
-        panRef.current = null;
+        clearPan();
         modeRef.current = "idle";
       }
     },
     [
       beginPan,
       beginPinch,
+      clearPan,
       commitActiveStroke,
       invalidateSnapshots,
       projectId,
@@ -2861,6 +2908,7 @@ export function PhaseOneCanvas({
             aria-label="Sketch canvas"
             className="canvas-layer canvas-input-layer"
             data-testid="input-canvas"
+            data-tool={tool}
             onPointerCancel={(event) => {
               event.preventDefault();
               finishPointer(event.nativeEvent, true);
@@ -2871,11 +2919,15 @@ export function PhaseOneCanvas({
               event.preventDefault();
               finishPointer(event.nativeEvent, false);
             }}
-            onWheel={handleWheelZoom}
+            onAuxClick={(event) => {
+              // Prevent middle-click autoscroll / paste gestures on desktop.
+              event.preventDefault();
+            }}
             ref={interactionCanvasRef}
           />
           <div className="gesture-hint">
-            Pencil uses the active tool · two fingers or mouse wheel zoom
+            Pencil uses the active tool · two fingers or scroll to zoom · middle
+            mouse to pan
           </div>
           {selectedObjectId ? (
             <div className="contextual-actions">
