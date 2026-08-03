@@ -5,11 +5,13 @@ import {
   useMemo,
   useState,
   useTransition,
+  type DragEvent,
   type KeyboardEvent,
 } from "react";
 import {
   Archive,
   ArchiveRestore,
+  GripVertical,
   Pencil,
 } from "lucide-react";
 
@@ -17,6 +19,7 @@ import {
   archiveProjectAction,
   createProjectAction,
   renameProjectAction,
+  reorderProjectsAction,
   signOutAction,
   unarchiveProjectAction,
 } from "@/app/actions";
@@ -40,21 +43,55 @@ function formatUpdatedDate(value: string) {
   return new Date(value).toLocaleDateString("en-AU");
 }
 
+function reorderProjectList(
+  projects: ProjectListItem[],
+  draggedId: string,
+  targetId: string,
+): ProjectListItem[] {
+  const fromIndex = projects.findIndex((project) => project.id === draggedId);
+  const toIndex = projects.findIndex((project) => project.id === targetId);
+
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return projects;
+  }
+
+  const next = [...projects];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
 type ProjectCardProps = {
   project: ProjectListItem;
   archived?: boolean;
+  sortable?: boolean;
+  isDragging?: boolean;
+  isDragOver?: boolean;
   onRename: (projectId: string, title: string) => void;
   onArchive: (projectId: string) => void;
   onUnarchive: (projectId: string) => void;
+  onDragHandleStart: (projectId: string) => void;
+  onDragHandleEnd: () => void;
+  onDragOverCard: (projectId: string) => void;
+  onDragLeaveCard: (projectId: string) => void;
+  onDropOnCard: (projectId: string) => void;
   isPending: boolean;
 };
 
 function ProjectCard({
   project,
   archived = false,
+  sortable = false,
+  isDragging = false,
+  isDragOver = false,
   onRename,
   onArchive,
   onUnarchive,
+  onDragHandleStart,
+  onDragHandleEnd,
+  onDragOverCard,
+  onDragLeaveCard,
+  onDropOnCard,
   isPending,
 }: ProjectCardProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -91,8 +128,59 @@ function ProjectCard({
     }
   };
 
+  const handleDragStart = (event: DragEvent<HTMLButtonElement>) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", project.id);
+    onDragHandleStart(project.id);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLElement>) => {
+    if (!sortable) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    onDragOverCard(project.id);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLElement>) => {
+    if (!sortable) {
+      return;
+    }
+
+    event.preventDefault();
+    onDropOnCard(project.id);
+  };
+
+  const cardClassName = [
+    "project-card",
+    isDragging ? "is-dragging" : "",
+    isDragOver ? "is-drag-over" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <article className="project-card">
+    <article
+      className={cardClassName}
+      onDragLeave={() => onDragLeaveCard(project.id)}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {sortable ? (
+        <button
+          aria-label={`Reorder ${project.title}`}
+          className="project-card-drag-handle"
+          data-tooltip="Drag to reorder"
+          draggable
+          onDragEnd={onDragHandleEnd}
+          onDragStart={handleDragStart}
+          type="button"
+        >
+          <GripVertical aria-hidden="true" strokeWidth={1.5} />
+        </button>
+      ) : null}
       <a
         className="project-card-link"
         href={`/projects/${project.id}`}
@@ -171,6 +259,78 @@ function ProjectCard({
   );
 }
 
+type SortableProjectGridProps = {
+  projects: ProjectListItem[];
+  archived?: boolean;
+  emptyMessage: string | null;
+  isPending: boolean;
+  onArchive: (projectId: string) => void;
+  onRename: (projectId: string, title: string) => void;
+  onReorder: (projectIds: string[]) => void;
+  onUnarchive: (projectId: string) => void;
+};
+
+function SortableProjectGrid({
+  projects,
+  archived = false,
+  emptyMessage,
+  isPending,
+  onArchive,
+  onRename,
+  onReorder,
+  onUnarchive,
+}: SortableProjectGridProps) {
+  const [orderedProjects, setOrderedProjects] = useState(projects);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const handleDrop = (targetId: string) => {
+    if (!draggingId) {
+      return;
+    }
+
+    const nextOrder = reorderProjectList(orderedProjects, draggingId, targetId);
+    setOrderedProjects(nextOrder);
+    setDraggingId(null);
+    setDragOverId(null);
+    onReorder(nextOrder.map((project) => project.id));
+  };
+
+  return (
+    <div className="project-grid">
+      {orderedProjects.map((project) => (
+        <ProjectCard
+          archived={archived}
+          isDragOver={dragOverId === project.id && draggingId !== project.id}
+          isDragging={draggingId === project.id}
+          isPending={isPending}
+          key={project.id}
+          onArchive={onArchive}
+          onDragHandleEnd={() => {
+            setDraggingId(null);
+            setDragOverId(null);
+          }}
+          onDragHandleStart={setDraggingId}
+          onDragLeaveCard={(projectId) => {
+            if (dragOverId === projectId) {
+              setDragOverId(null);
+            }
+          }}
+          onDragOverCard={setDragOverId}
+          onDropOnCard={handleDrop}
+          onRename={onRename}
+          onUnarchive={onUnarchive}
+          project={project}
+          sortable
+        />
+      ))}
+      {orderedProjects.length === 0 && emptyMessage ? (
+        <p className="empty-state">{emptyMessage}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export function ProjectsView({ projects }: ProjectsViewProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -223,6 +383,11 @@ export function ProjectsView({ projects }: ProjectsViewProps) {
     });
   };
 
+  const activeEmptyMessage =
+    archivedProjects.length > 0
+      ? "No active projects. Show archived projects to reopen one."
+      : "Create your first project to start sketching.";
+
   return (
     <main className="projects-shell">
       <header className="projects-header">
@@ -274,55 +439,47 @@ export function ProjectsView({ projects }: ProjectsViewProps) {
           </div>
         </form>
 
-        <div className="project-grid">
-          {activeProjects.map((project) => (
-            <ProjectCard
-              archived={false}
+        <SortableProjectGrid
+          emptyMessage={activeProjects.length === 0 ? activeEmptyMessage : null}
+          isPending={isPending}
+          key={activeProjects.map((project) => project.id).join("-")}
+          onArchive={(projectId) =>
+            runProjectAction(() => archiveProjectAction(projectId))
+          }
+          onRename={(projectId, title) =>
+            runProjectAction(() => renameProjectAction(projectId, title))
+          }
+          onReorder={(projectIds) =>
+            runProjectAction(() => reorderProjectsAction(projectIds))
+          }
+          onUnarchive={(projectId) =>
+            runProjectAction(() => unarchiveProjectAction(projectId))
+          }
+          projects={activeProjects}
+        />
+
+        {showArchived && archivedProjects.length > 0 ? (
+          <section className="archived-projects-section">
+            <h2 className="archived-projects-heading">Archived</h2>
+            <SortableProjectGrid
+              archived
+              emptyMessage={null}
               isPending={isPending}
-              key={project.id}
+              key={archivedProjects.map((project) => project.id).join("-")}
               onArchive={(projectId) =>
                 runProjectAction(() => archiveProjectAction(projectId))
               }
               onRename={(projectId, title) =>
                 runProjectAction(() => renameProjectAction(projectId, title))
               }
+              onReorder={(projectIds) =>
+                runProjectAction(() => reorderProjectsAction(projectIds))
+              }
               onUnarchive={(projectId) =>
                 runProjectAction(() => unarchiveProjectAction(projectId))
               }
-              project={project}
+              projects={archivedProjects}
             />
-          ))}
-          {activeProjects.length === 0 ? (
-            <p className="empty-state">
-              {archivedProjects.length > 0
-                ? "No active projects. Show archived projects to reopen one."
-                : "Create your first project to start sketching."}
-            </p>
-          ) : null}
-        </div>
-
-        {showArchived && archivedProjects.length > 0 ? (
-          <section className="archived-projects-section">
-            <h2 className="archived-projects-heading">Archived</h2>
-            <div className="project-grid">
-              {archivedProjects.map((project) => (
-                <ProjectCard
-                  archived
-                  isPending={isPending}
-                  key={project.id}
-                  onArchive={(projectId) =>
-                    runProjectAction(() => archiveProjectAction(projectId))
-                  }
-                  onRename={(projectId, title) =>
-                    runProjectAction(() => renameProjectAction(projectId, title))
-                  }
-                  onUnarchive={(projectId) =>
-                    runProjectAction(() => unarchiveProjectAction(projectId))
-                  }
-                  project={project}
-                />
-              ))}
-            </div>
           </section>
         ) : null}
       </section>

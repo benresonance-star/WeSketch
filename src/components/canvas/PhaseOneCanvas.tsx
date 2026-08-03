@@ -1971,6 +1971,7 @@ export function PhaseOneCanvas({
         strokesRef.current.length - 1,
       ),
     );
+    scheduleThumbnailSave();
   }, [
     invalidateSnapshots,
     projectId,
@@ -1978,6 +1979,7 @@ export function PhaseOneCanvas({
     remoteContext,
     renderInteractions,
     scheduleRender,
+    scheduleThumbnailSave,
     supabase,
   ]);
 

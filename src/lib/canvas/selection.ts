@@ -1,5 +1,5 @@
 import type { Point, ScreenPoint } from "@/lib/canvas/geometry";
-import type { Bounds, Stroke } from "@/types/canvas";
+import type { Bounds, CanvasImageObject, CanvasLayer, Stroke } from "@/types/canvas";
 
 export function normalizeBounds(
   start: ScreenPoint,
@@ -35,6 +35,58 @@ export function boundsFromPoints(points: ScreenPoint[]): Bounds {
     y: minimumY,
     width: maximumX - minimumX,
     height: maximumY - minimumY,
+  };
+}
+
+export function unionBounds(first: Bounds, second: Bounds): Bounds {
+  if (first.width <= 0 && first.height <= 0) {
+    return second;
+  }
+
+  if (second.width <= 0 && second.height <= 0) {
+    return first;
+  }
+
+  const x = Math.min(first.x, second.x);
+  const y = Math.min(first.y, second.y);
+  const maximumX = Math.max(first.x + first.width, second.x + second.width);
+  const maximumY = Math.max(first.y + first.height, second.y + second.height);
+
+  return {
+    x,
+    y,
+    width: maximumX - x,
+    height: maximumY - y,
+  };
+}
+
+export function strokeBounds(stroke: Stroke): Bounds {
+  if (stroke.points.length === 0) {
+    return { x: 0, y: 0, width: 0, height: 0 };
+  }
+
+  const bounds = boundsFromPoints(stroke.points);
+  const padding = stroke.width / 2;
+
+  return {
+    x: bounds.x - padding,
+    y: bounds.y - padding,
+    width: bounds.width + padding * 2,
+    height: bounds.height + padding * 2,
+  };
+}
+
+export function ensureMinimumBounds(bounds: Bounds, minimumSize: number): Bounds {
+  const width = Math.max(bounds.width, minimumSize);
+  const height = Math.max(bounds.height, minimumSize);
+  const centerX = bounds.x + bounds.width / 2;
+  const centerY = bounds.y + bounds.height / 2;
+
+  return {
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    width,
+    height,
   };
 }
 
@@ -143,4 +195,52 @@ export function asPoint(
   time = 0,
 ): Point {
   return { ...point, pressure, time };
+}
+
+export function computeSceneContentBounds(input: {
+  strokes: Stroke[];
+  objects: CanvasImageObject[];
+  layers: CanvasLayer[];
+  worldWidth: number;
+  worldHeight: number;
+}): Bounds | null {
+  const visibleLayerIds = new Set(
+    input.layers
+      .filter((layer) => layer.visible && layer.opacity > 0)
+      .map((layer) => layer.id),
+  );
+
+  let contentBounds: Bounds | null = null;
+
+  for (const stroke of input.strokes) {
+    if (!visibleLayerIds.has(stroke.layerId)) {
+      continue;
+    }
+
+    contentBounds = contentBounds
+      ? unionBounds(contentBounds, strokeBounds(stroke))
+      : strokeBounds(stroke);
+  }
+
+  for (const canvasObject of input.objects) {
+    if (!visibleLayerIds.has(canvasObject.layerId)) {
+      continue;
+    }
+
+    const objectBound = {
+      x: canvasObject.x,
+      y: canvasObject.y,
+      width: canvasObject.width,
+      height: canvasObject.height,
+    };
+    contentBounds = contentBounds
+      ? unionBounds(contentBounds, objectBound)
+      : objectBound;
+  }
+
+  if (!contentBounds || (contentBounds.width <= 0 && contentBounds.height <= 0)) {
+    return null;
+  }
+
+  return clampBounds(contentBounds, input.worldWidth, input.worldHeight);
 }

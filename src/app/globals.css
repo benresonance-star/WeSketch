@@ -1568,6 +1568,45 @@ select:focus-visible {
   gap: 0;
   overflow: hidden;
   position: relative;
+  transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.project-card.is-dragging {
+  opacity: 0.55;
+}
+
+.project-card.is-drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.project-card-drag-handle {
+  align-items: center;
+  appearance: none;
+  background: rgba(255, 254, 250, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: grab;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  left: 10px;
+  position: absolute;
+  top: 10px;
+  touch-action: none;
+  width: 30px;
+  z-index: 2;
+  -webkit-appearance: none;
+}
+
+.project-card-drag-handle:active {
+  cursor: grabbing;
+}
+
+.project-card-drag-handle svg {
+  height: 16px;
+  width: 16px;
 }
 
 .project-card-link {
@@ -1665,7 +1704,9 @@ select:focus-visible {
   .projects-archive-toggle[data-tooltip]:hover::after,
   .projects-archive-toggle[data-tooltip]:focus-visible::after,
   .project-card-action[data-tooltip]:hover::after,
-  .project-card-action[data-tooltip]:focus-visible::after {
+  .project-card-action[data-tooltip]:focus-visible::after,
+  .project-card-drag-handle[data-tooltip]:hover::after,
+  .project-card-drag-handle[data-tooltip]:focus-visible::after {
     background: var(--ink);
     border-radius: 6px;
     color: var(--on-primary);
@@ -1689,6 +1730,8 @@ select:focus-visible {
 
   .project-card-action:hover,
   .project-card-action:focus-visible,
+  .project-card-drag-handle:hover,
+  .project-card-drag-handle:focus-visible,
   .projects-archive-toggle:hover,
   .projects-archive-toggle:focus-visible {
     background: var(--control-subtle);

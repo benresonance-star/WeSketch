@@ -1,9 +1,17 @@
 import { renderRegion } from "@/lib/canvas/scene-renderer";
+import {
+  clampBounds,
+  computeSceneContentBounds,
+  ensureMinimumBounds,
+  expandBounds,
+} from "@/lib/canvas/selection";
 import type { CanvasImageObject, CanvasLayer, Stroke } from "@/types/canvas";
 
 const WORLD_WIDTH = 2048;
 const WORLD_HEIGHT = 1536;
 const THUMBNAIL_LONG_EDGE = 640;
+const THUMBNAIL_CONTENT_PADDING_RATIO = 0.15;
+const THUMBNAIL_MIN_CONTENT_SIZE = 180;
 
 export type ProjectThumbnailInput = {
   strokes: Stroke[];
@@ -29,20 +37,46 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
-export async function renderProjectThumbnail(
-  input: ProjectThumbnailInput,
-): Promise<Blob> {
-  const region = {
+function thumbnailRegion(input: ProjectThumbnailInput) {
+  const wholeCanvasBounds = {
     x: 0,
     y: 0,
     width: WORLD_WIDTH,
     height: WORLD_HEIGHT,
   };
-  const longestEdge = Math.max(WORLD_WIDTH, WORLD_HEIGHT);
+  const contentBounds = computeSceneContentBounds({
+    strokes: input.strokes,
+    objects: input.objects,
+    layers: input.layers,
+    worldWidth: WORLD_WIDTH,
+    worldHeight: WORLD_HEIGHT,
+  });
+
+  if (!contentBounds) {
+    return wholeCanvasBounds;
+  }
+
+  return expandBounds(
+    clampBounds(
+      ensureMinimumBounds(contentBounds, THUMBNAIL_MIN_CONTENT_SIZE),
+      WORLD_WIDTH,
+      WORLD_HEIGHT,
+    ),
+    THUMBNAIL_CONTENT_PADDING_RATIO,
+    WORLD_WIDTH,
+    WORLD_HEIGHT,
+  );
+}
+
+export async function renderProjectThumbnail(
+  input: ProjectThumbnailInput,
+): Promise<Blob> {
+  const region = thumbnailRegion(input);
+  const longestEdge = Math.max(1, region.width, region.height);
   const scale = THUMBNAIL_LONG_EDGE / longestEdge;
   const outputSize = {
-    width: Math.max(1, Math.round(WORLD_WIDTH * scale)),
-    height: Math.max(1, Math.round(WORLD_HEIGHT * scale)),
+    width: Math.max(1, Math.round(region.width * scale)),
+    height: Math.max(1, Math.round(region.height * scale)),
   };
 
   const canvas = document.createElement("canvas");
@@ -70,3 +104,5 @@ export async function renderProjectThumbnail(
 
   return canvasToBlob(canvas);
 }
+
+export { thumbnailRegion as projectThumbnailRegionForTests };

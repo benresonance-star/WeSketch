@@ -18,8 +18,9 @@ export default async function HomePage() {
   const { data: projects, error } = await supabase
     .from("projects")
     .select(
-      "id, title, updated_at, archived_at, thumbnail_path, canvases ( background )",
+      "id, title, updated_at, archived_at, sort_order, thumbnail_path, canvases ( background )",
     )
+    .order("sort_order", { ascending: true })
     .order("updated_at", { ascending: false });
 
   if (error) {
