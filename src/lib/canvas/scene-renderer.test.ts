@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  objectDrawOpacity,
   orderedVisibleLayers,
   strokeWidthAtPressure,
 } from "@/lib/canvas/scene-renderer";
 import type { CanvasLayer } from "@/types/canvas";
+
+describe("objectDrawOpacity", () => {
+  it("defaults missing opacity to fully opaque", () => {
+    expect(objectDrawOpacity(undefined)).toBe(1);
+  });
+
+  it("clamps object opacity into the 0–1 range", () => {
+    expect(objectDrawOpacity(-0.2)).toBe(0);
+    expect(objectDrawOpacity(0.4)).toBe(0.4);
+    expect(objectDrawOpacity(1.5)).toBe(1);
+  });
+});
 
 describe("strokeWidthAtPressure", () => {
   it("maps Pencil pressure from a fine line to full brush size", () => {

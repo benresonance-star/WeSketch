@@ -46,6 +46,8 @@ export type CanvasImageObject = Bounds & {
   type: "image";
   rotation: number;
   zIndex: number;
+  /** Object-level opacity, independent from its layer (0–1). */
+  opacity: number;
   blob: Blob;
   artifactId?: string;
   storagePath?: string;

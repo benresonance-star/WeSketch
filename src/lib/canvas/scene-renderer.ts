@@ -106,6 +106,13 @@ export function drawStroke(
   context.stroke();
 }
 
+export function objectDrawOpacity(opacity: number | undefined): number {
+  if (typeof opacity !== "number" || !Number.isFinite(opacity)) {
+    return 1;
+  }
+  return Math.min(1, Math.max(0, opacity));
+}
+
 function drawObject(
   context: CanvasRenderingContext2D,
   canvasObject: CanvasImageObject,
@@ -123,6 +130,7 @@ function drawObject(
   }
 
   context.save();
+  context.globalAlpha *= objectDrawOpacity(canvasObject.opacity);
   context.translate(
     canvasObject.x + canvasObject.width / 2,
     canvasObject.y + canvasObject.height / 2,

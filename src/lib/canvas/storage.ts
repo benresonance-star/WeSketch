@@ -131,6 +131,34 @@ export async function clearStrokes(projectId: string): Promise<void> {
   await transaction.done;
 }
 
+function normalizeStoredObject(
+  canvasObject: StoredObject,
+): CanvasImageObject {
+  const opacity =
+    typeof canvasObject.opacity === "number" &&
+    Number.isFinite(canvasObject.opacity)
+      ? Math.min(1, Math.max(0, canvasObject.opacity))
+      : 1;
+
+  return {
+    id: canvasObject.id,
+    layerId: canvasObject.layerId,
+    type: canvasObject.type,
+    x: canvasObject.x,
+    y: canvasObject.y,
+    width: canvasObject.width,
+    height: canvasObject.height,
+    rotation: canvasObject.rotation,
+    zIndex: canvasObject.zIndex,
+    opacity,
+    blob: canvasObject.blob,
+    artifactId: canvasObject.artifactId,
+    storagePath: canvasObject.storagePath,
+    mimeType: canvasObject.mimeType,
+    createdAt: canvasObject.createdAt,
+  };
+}
+
 export async function loadCanvasObjects(
   projectId: string,
 ): Promise<CanvasImageObject[]> {
@@ -142,7 +170,7 @@ export async function loadCanvasObjects(
   );
 
   if (scoped.length > 0) {
-    return scoped;
+    return scoped.map(normalizeStoredObject);
   }
 
   const legacy = (await database.getAll("objects")).filter(
@@ -153,7 +181,7 @@ export async function loadCanvasObjects(
       database.put("objects", { ...canvasObject, projectId }),
     ),
   );
-  return legacy;
+  return legacy.map(normalizeStoredObject);
 }
 
 export async function saveCanvasObject(

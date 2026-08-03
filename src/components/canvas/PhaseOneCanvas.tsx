@@ -10,15 +10,17 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Settings } from "lucide-react";
+import { Settings, SlidersHorizontal } from "lucide-react";
 
 import { CanvasToolbar } from "@/components/canvas/CanvasToolbar";
 import { ContextPanel } from "@/components/canvas/ContextPanel";
+import { ObjectPropertiesPanel } from "@/components/canvas/ObjectPropertiesPanel";
 import {
   distance,
   fitViewport,
   midpoint,
   screenToWorld,
+  worldToScreen,
   zoomViewport,
   type Point,
   type ScreenPoint,
@@ -371,6 +373,10 @@ export function PhaseOneCanvas({
   const [dpr, setDpr] = useState(DEFAULT_DPR);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [isObjectPropertiesOpen, setIsObjectPropertiesOpen] = useState(false);
+  const [propertiesObject, setPropertiesObject] =
+    useState<CanvasImageObject | null>(null);
+  const objectPropertiesAnchorRef = useRef<HTMLButtonElement>(null);
   const [snapshots, setSnapshots] = useState<SnapshotPreview | null>(null);
   const [snapshotState, setSnapshotState] = useState<
     "idle" | "preparing" | "ready" | "error"
@@ -749,6 +755,7 @@ export function PhaseOneCanvas({
     const selectedObject = objectsRef.current.find(
       (canvasObject) => canvasObject.id === selectedObjectIdRef.current,
     );
+    const propertiesAnchor = objectPropertiesAnchorRef.current;
 
     if (selectedObject) {
       context.strokeStyle = SELECTION_COLOR;
@@ -766,6 +773,20 @@ export function PhaseOneCanvas({
         14 / viewport.scale,
         14 / viewport.scale,
       );
+
+      if (propertiesAnchor) {
+        const anchor = worldToScreen(
+          {
+            x: selectedObject.x,
+            y: selectedObject.y + selectedObject.height,
+          },
+          viewport,
+        );
+        propertiesAnchor.dataset.visible = "true";
+        propertiesAnchor.style.transform = `translate(${anchor.x}px, ${anchor.y}px) translate(-50%, -50%)`;
+      }
+    } else if (propertiesAnchor) {
+      propertiesAnchor.dataset.visible = "false";
     }
 
     context.restore();
@@ -983,6 +1004,8 @@ export function PhaseOneCanvas({
       ) {
         selectedObjectIdRef.current = null;
         setSelectedObjectId(null);
+        setIsObjectPropertiesOpen(false);
+        setPropertiesObject(null);
       }
       persistLayerChanges(nextLayers, [nextLayer]);
     },
@@ -1706,6 +1729,8 @@ export function PhaseOneCanvas({
       if (!target) {
         selectedObjectIdRef.current = null;
         setSelectedObjectId(null);
+        setIsObjectPropertiesOpen(false);
+        setPropertiesObject(null);
         renderInteractions();
         return;
       }
@@ -2097,6 +2122,9 @@ export function PhaseOneCanvas({
               );
               await saveCanvasObject(projectId, saved);
             });
+            setPropertiesObject((current) =>
+              current?.id === updated.id ? { ...updated } : current,
+            );
           }
 
           objectTransformRef.current = null;
@@ -2238,6 +2266,13 @@ export function PhaseOneCanvas({
           objectsRef.current = objectsRef.current.map((canvasObject) =>
             canvasObject.id === nextObject.id ? nextObject : canvasObject,
           );
+          if (selectedObjectIdRef.current === nextObject.id) {
+            activeLayerIdRef.current = nextObject.layerId;
+            setActiveLayerId(nextObject.layerId);
+          }
+          setPropertiesObject((current) =>
+            current?.id === nextObject.id ? { ...nextObject } : current,
+          );
           void saveCanvasObject(projectId, nextObject);
           queueRemoteSync(async () => {
             const saved = await saveRemoteObject(
@@ -2267,6 +2302,8 @@ export function PhaseOneCanvas({
       ) {
         selectedObjectIdRef.current = null;
         setSelectedObjectId(null);
+        setIsObjectPropertiesOpen(false);
+        setPropertiesObject(null);
       }
 
       invalidateSnapshots();
@@ -2330,6 +2367,8 @@ export function PhaseOneCanvas({
     redoRef.current = [];
     selectedObjectIdRef.current = null;
     setSelectedObjectId(null);
+    setIsObjectPropertiesOpen(false);
+    setPropertiesObject(null);
     invalidateSnapshots();
     setStats((current) => ({ ...current, persistenceState: "saving" }));
     scheduleRender();
@@ -2343,6 +2382,84 @@ export function PhaseOneCanvas({
     queueObjectDeletion,
     scheduleRender,
   ]);
+
+  const openObjectProperties = useCallback(() => {
+    const canvasObject = objectsRef.current.find(
+      (candidate) => candidate.id === selectedObjectIdRef.current,
+    );
+    if (!canvasObject) {
+      return;
+    }
+    setPropertiesObject({ ...canvasObject });
+    setIsObjectPropertiesOpen(true);
+  }, []);
+
+  const updateSelectedObjectProperties = useCallback(
+    (nextObject: CanvasImageObject) => {
+      const before = objectsRef.current.find(
+        (candidate) => candidate.id === nextObject.id,
+      );
+      if (!before) {
+        return;
+      }
+
+      const after: CanvasImageObject = {
+        ...nextObject,
+        opacity: Math.min(1, Math.max(0, nextObject.opacity)),
+      };
+
+      if (
+        before.layerId === after.layerId &&
+        before.opacity === after.opacity &&
+        before.x === after.x &&
+        before.y === after.y &&
+        before.width === after.width &&
+        before.height === after.height
+      ) {
+        setPropertiesObject(after);
+        return;
+      }
+
+      objectsRef.current = objectsRef.current.map((candidate) =>
+        candidate.id === after.id ? after : candidate,
+      );
+      historyRef.current.push({ type: "object-update", before, after });
+      redoRef.current = [];
+      if (after.layerId !== activeLayerIdRef.current) {
+        activeLayerIdRef.current = after.layerId;
+        setActiveLayerId(after.layerId);
+      }
+      setPropertiesObject(after);
+      invalidateSnapshots();
+      setStats((current) => ({ ...current, persistenceState: "saving" }));
+      scheduleRender();
+      void saveCanvasObject(projectId, after)
+        .then(() =>
+          setStats((current) => ({ ...current, persistenceState: "saved" })),
+        )
+        .catch(() =>
+          setStats((current) => ({ ...current, persistenceState: "error" })),
+        );
+      queueRemoteSync(async () => {
+        const saved = await saveRemoteObject(supabase, remoteContext, after);
+        objectsRef.current = objectsRef.current.map((current) =>
+          current.id === saved.id ? saved : current,
+        );
+        setPropertiesObject((current) =>
+          current?.id === saved.id ? { ...saved } : current,
+        );
+        await saveCanvasObject(projectId, saved);
+      });
+    },
+    [
+      invalidateSnapshots,
+      projectId,
+      queueRemoteSync,
+      remoteContext,
+      scheduleRender,
+      supabase,
+    ],
+  );
 
   const importImage = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -2376,6 +2493,7 @@ export function PhaseOneCanvas({
               (highest, item) => Math.max(highest, item.zIndex),
               0,
             ) + 1,
+          opacity: 1,
           blob: prepared.blob,
           createdAt: Date.now(),
         };
@@ -2743,6 +2861,7 @@ export function PhaseOneCanvas({
               (highest, item) => Math.max(highest, item.zIndex),
               0,
             ) + 1,
+          opacity: 1,
           blob,
           artifactId: message.artifactId,
           storagePath: message.generatedStoragePath,
@@ -2805,6 +2924,8 @@ export function PhaseOneCanvas({
     selectedObjectIdRef.current = null;
     setSelection(null);
     setSelectedObjectId(null);
+    setIsObjectPropertiesOpen(false);
+    setPropertiesObject(null);
     invalidateSnapshots();
 
     setStats((current) => ({ ...current, persistenceState: "saving" }));
@@ -2840,6 +2961,8 @@ export function PhaseOneCanvas({
       if (nextTool !== "object") {
         selectedObjectIdRef.current = null;
         setSelectedObjectId(null);
+        setIsObjectPropertiesOpen(false);
+        setPropertiesObject(null);
       }
 
       scheduleRender();
@@ -2929,6 +3052,21 @@ export function PhaseOneCanvas({
             Pencil uses the active tool · two fingers or scroll to zoom · middle
             mouse to pan
           </div>
+          <button
+            aria-label="Open object properties"
+            className="object-properties-anchor"
+            onClick={(event) => {
+              event.stopPropagation();
+              openObjectProperties();
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            ref={objectPropertiesAnchorRef}
+            type="button"
+          >
+            <SlidersHorizontal aria-hidden="true" />
+          </button>
           {selectedObjectId ? (
             <div className="contextual-actions">
               <button
@@ -2941,6 +3079,18 @@ export function PhaseOneCanvas({
             </div>
           ) : null}
         </div>
+
+        {isObjectPropertiesOpen && propertiesObject ? (
+          <ObjectPropertiesPanel
+            canvasObject={propertiesObject}
+            layers={layers}
+            onChange={updateSelectedObjectProperties}
+            onClose={() => {
+              setIsObjectPropertiesOpen(false);
+              setPropertiesObject(null);
+            }}
+          />
+        ) : null}
 
         <ContextPanel
           aiError={aiError}

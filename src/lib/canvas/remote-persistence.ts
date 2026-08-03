@@ -38,9 +38,16 @@ type RemoteObjectRow = {
   rotation: number;
   z_index: number;
   artifact_id: string | null;
-  data: { storagePath?: string; mimeType?: string };
+  data: { storagePath?: string; mimeType?: string; opacity?: number };
   created_at: string;
 };
+
+function normalizeObjectOpacity(opacity: number | undefined): number {
+  if (typeof opacity !== "number" || !Number.isFinite(opacity)) {
+    return 1;
+  }
+  return Math.min(1, Math.max(0, opacity));
+}
 
 type RemoteLayerRow = {
   id: string;
@@ -141,6 +148,7 @@ export async function loadRemoteScene(
         height: Number(row.height),
         rotation: Number(row.rotation),
         zIndex: row.z_index,
+        opacity: normalizeObjectOpacity(row.data.opacity),
         blob,
         artifactId: row.artifact_id ?? undefined,
         storagePath,
@@ -279,6 +287,7 @@ export async function saveRemoteObject(
       data: {
         storagePath: savedObject.storagePath,
         mimeType: savedObject.mimeType,
+        opacity: normalizeObjectOpacity(savedObject.opacity),
       },
       created_at: new Date(savedObject.createdAt).toISOString(),
       deleted_at: null,
