@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -40,6 +41,7 @@ export function LayersPanel({
   onMove,
 }: LayersPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     pointerId: number;
     originX: number;
@@ -51,6 +53,26 @@ export function LayersPanel({
   const sortedLayers = [...layers].sort(
     (first, second) => second.order - first.order,
   );
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const panel = panelRef.current;
+    if (!list || !panel) {
+      return;
+    }
+
+    const syncScrollbarSize = () => {
+      const scrollbarSize = Math.max(0, list.offsetWidth - list.clientWidth);
+      panel.style.setProperty("--layers-scrollbar-size", `${scrollbarSize}px`);
+    };
+
+    syncScrollbarSize();
+
+    const observer = new ResizeObserver(syncScrollbarSize);
+    observer.observe(list);
+
+    return () => observer.disconnect();
+  }, [sortedLayers.length]);
 
   const clampPosition = (x: number, y: number) => {
     const bounds = panelRef.current?.getBoundingClientRect();
@@ -143,7 +165,7 @@ export function LayersPanel({
           </button>
         </div>
       </header>
-      <div className={styles.list}>
+      <div className={styles.list} ref={listRef}>
         {sortedLayers.map((layer, index) => (
           <article
             className={`${styles.row} ${

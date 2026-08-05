@@ -1,4 +1,5 @@
 .panel {
+  --layers-scrollbar-size: 0px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -88,14 +89,18 @@
   display: grid;
   gap: 7px;
   grid-auto-rows: max-content;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   touch-action: pan-y;
   width: 100%;
   -webkit-overflow-scrolling: touch;
+}
+
+.list::-webkit-scrollbar {
+  width: 12px;
 }
 
 .row {
@@ -105,11 +110,11 @@
   box-sizing: border-box;
   display: grid;
   gap: 7px;
-  max-width: 100%;
+  max-width: calc(100% - var(--layers-scrollbar-size, 0px));
   min-width: 0;
   overflow: hidden;
   padding: 7px;
-  width: 100%;
+  width: calc(100% - var(--layers-scrollbar-size, 0px));
 }
 
 .row.active {
