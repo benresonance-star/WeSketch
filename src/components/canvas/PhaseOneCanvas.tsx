@@ -755,6 +755,13 @@ export function PhaseOneCanvas({
       });
   }, []);
 
+  const reportLocalCacheError = useCallback((error: unknown) => {
+    setStats((current) => ({
+      ...current,
+      persistenceError: `Cloud sync continues, but this device's offline cache failed: ${errorMessage(error)}`,
+    }));
+  }, []);
+
   const saveProjectThumbnailSnapshot = useCallback(async () => {
     const thumbnail = await renderProjectThumbnail({
       strokes: strokesRef.current,
@@ -1123,16 +1130,17 @@ export function PhaseOneCanvas({
       invalidateSnapshots();
       scheduleRender();
       changedLayers.forEach((layer) => {
-        queueRemoteSync(async () => {
-          await saveCanvasLayer(projectId, layer);
-          await saveRemoteLayer(supabase, remoteContext, layer);
-        });
+        void saveCanvasLayer(projectId, layer).catch(reportLocalCacheError);
+        queueRemoteSync(() =>
+          saveRemoteLayer(supabase, remoteContext, layer),
+        );
       });
     },
     [
       invalidateSnapshots,
       projectId,
       queueRemoteSync,
+      reportLocalCacheError,
       remoteContext,
       scheduleRender,
       supabase,
@@ -1563,21 +1571,15 @@ export function PhaseOneCanvas({
             .filter((canvasObject) => !deletedObjectIds.has(canvasObject.id))
             .map((canvasObject) => [canvasObject.id, canvasObject]),
         );
-        localStrokes.forEach((stroke) => strokeMap.set(stroke.id, stroke));
+        localStrokes.forEach((stroke) => {
+          if (!strokeMap.has(stroke.id)) {
+            strokeMap.set(stroke.id, stroke);
+          }
+        });
         localObjects.forEach((canvasObject) => {
-          const remoteObject = objectMap.get(canvasObject.id);
-          objectMap.set(
-            canvasObject.id,
-            remoteObject
-              ? {
-                  ...canvasObject,
-                  artifactId: remoteObject.artifactId,
-                  blob: remoteObject.blob,
-                  mimeType: remoteObject.mimeType,
-                  storagePath: remoteObject.storagePath,
-                }
-              : canvasObject,
-          );
+          if (!objectMap.has(canvasObject.id)) {
+            objectMap.set(canvasObject.id, canvasObject);
+          }
         });
         const mergedStrokes = Array.from(strokeMap.values()).map((stroke) => ({
           ...stroke,
@@ -1614,6 +1616,9 @@ export function PhaseOneCanvas({
 
         const remoteStrokeIds = new Set(remote.strokes.map((stroke) => stroke.id));
         const remoteLayerIds = new Set(remote.layers.map((layer) => layer.id));
+        const remoteObjectIds = new Set(
+          remote.objects.map((canvasObject) => canvasObject.id),
+        );
         localLayers
           .filter((layer) => !remoteLayerIds.has(layer.id))
           .forEach((layer) => {
@@ -1628,19 +1633,23 @@ export function PhaseOneCanvas({
               saveRemoteStroke(supabase, remoteContext, stroke, index),
             );
           });
-        localObjects.forEach((canvasObject) => {
-          queueRemoteSync(async () => {
-            const saved = await saveRemoteObject(
-              supabase,
-              remoteContext,
-              canvasObject,
-            );
-            objectsRef.current = objectsRef.current.map((current) =>
-              current.id === saved.id ? saved : current,
-            );
-            await saveCanvasObject(projectId, saved);
+        localObjects
+          .filter((canvasObject) => !remoteObjectIds.has(canvasObject.id))
+          .forEach((canvasObject) => {
+            queueRemoteSync(async () => {
+              const saved = await saveRemoteObject(
+                supabase,
+                remoteContext,
+                canvasObject,
+              );
+              objectsRef.current = objectsRef.current.map((current) =>
+                current.id === saved.id ? saved : current,
+              );
+              void saveCanvasObject(projectId, saved).catch(
+                reportLocalCacheError,
+              );
+            });
           });
-        });
         deletions.forEach((deletion) => {
           queueRemoteSync(async () => {
             if (deletion.kind === "stroke") {
@@ -1661,11 +1670,11 @@ export function PhaseOneCanvas({
                 );
               }
             }
-            await clearSceneDeletion(
+            void clearSceneDeletion(
               projectId,
               deletion.kind,
               deletion.entityId,
-            );
+            ).catch(reportLocalCacheError);
           });
         });
       } catch (error) {
@@ -1703,6 +1712,7 @@ export function PhaseOneCanvas({
     canvasId,
     projectId,
     queueRemoteSync,
+    reportLocalCacheError,
     remoteContext,
     scheduleRender,
     scheduleThumbnailSave,
@@ -1713,12 +1723,20 @@ export function PhaseOneCanvas({
     (strokeId: string) => {
       const tombstone = markSceneDeletion(projectId, "stroke", strokeId);
       queueRemoteSync(async () => {
-        await tombstone;
+        await tombstone.catch(reportLocalCacheError);
         await deleteRemoteStroke(supabase, remoteContext, strokeId);
-        await clearSceneDeletion(projectId, "stroke", strokeId);
+        void clearSceneDeletion(projectId, "stroke", strokeId).catch(
+          reportLocalCacheError,
+        );
       });
     },
-    [projectId, queueRemoteSync, remoteContext, supabase],
+    [
+      projectId,
+      queueRemoteSync,
+      reportLocalCacheError,
+      remoteContext,
+      supabase,
+    ],
   );
 
   const queueObjectDeletion = useCallback(
@@ -1729,12 +1747,20 @@ export function PhaseOneCanvas({
         canvasObject.id,
       );
       queueRemoteSync(async () => {
-        await tombstone;
+        await tombstone.catch(reportLocalCacheError);
         await deleteRemoteObject(supabase, remoteContext, canvasObject);
-        await clearSceneDeletion(projectId, "object", canvasObject.id);
+        void clearSceneDeletion(projectId, "object", canvasObject.id).catch(
+          reportLocalCacheError,
+        );
       });
     },
-    [projectId, queueRemoteSync, remoteContext, supabase],
+    [
+      projectId,
+      queueRemoteSync,
+      remoteContext,
+      reportLocalCacheError,
+      supabase,
+    ],
   );
 
   const clearPan = useCallback(() => {
@@ -1960,9 +1986,7 @@ export function PhaseOneCanvas({
     setStats((current) => ({ ...current, persistenceState: "saving" }));
     scheduleRender();
 
-    void saveStroke(projectId, stroke).catch(() => {
-        setStats((current) => ({ ...current, persistenceState: "error" }));
-      });
+    void saveStroke(projectId, stroke).catch(reportLocalCacheError);
     queueRemoteSync(() =>
       saveRemoteStroke(
         supabase,
@@ -1976,6 +2000,7 @@ export function PhaseOneCanvas({
     invalidateSnapshots,
     projectId,
     queueRemoteSync,
+    reportLocalCacheError,
     remoteContext,
     renderInteractions,
     scheduleRender,
@@ -2297,7 +2322,9 @@ export function PhaseOneCanvas({
               objectsRef.current = objectsRef.current.map((current) =>
                 current.id === saved.id ? saved : current,
               );
-              await saveCanvasObject(projectId, saved);
+              void saveCanvasObject(projectId, saved).catch(
+                reportLocalCacheError,
+              );
             });
             setPropertiesObject((current) =>
               current?.id === updated.id ? { ...updated } : current,
@@ -2337,6 +2364,7 @@ export function PhaseOneCanvas({
       invalidateSnapshots,
       projectId,
       queueRemoteSync,
+      reportLocalCacheError,
       remoteContext,
       renderInteractions,
       supabase,
@@ -2402,7 +2430,9 @@ export function PhaseOneCanvas({
               objectsRef.current = objectsRef.current.map((current) =>
                 current.id === saved.id ? saved : current,
               );
-              await saveCanvasObject(projectId, saved);
+              void saveCanvasObject(projectId, saved).catch(
+                reportLocalCacheError,
+              );
             });
           } else {
             objectsRef.current = objectsRef.current.filter(
@@ -2434,7 +2464,9 @@ export function PhaseOneCanvas({
               objectsRef.current = objectsRef.current.map((current) =>
                 current.id === saved.id ? saved : current,
               );
-              await saveCanvasObject(projectId, saved);
+              void saveCanvasObject(projectId, saved).catch(
+                reportLocalCacheError,
+              );
             });
           }
           break;
@@ -2460,7 +2492,9 @@ export function PhaseOneCanvas({
             objectsRef.current = objectsRef.current.map((current) =>
               current.id === saved.id ? saved : current,
             );
-            await saveCanvasObject(projectId, saved);
+            void saveCanvasObject(projectId, saved).catch(
+              reportLocalCacheError,
+            );
           });
           break;
         }
@@ -2492,6 +2526,7 @@ export function PhaseOneCanvas({
       queueObjectDeletion,
       queueRemoteSync,
       queueStrokeDeletion,
+      reportLocalCacheError,
       remoteContext,
       scheduleRender,
       supabase,
@@ -2638,13 +2673,7 @@ export function PhaseOneCanvas({
       invalidateSnapshots();
       setStats((current) => ({ ...current, persistenceState: "saving" }));
       scheduleRender();
-      void saveCanvasObject(projectId, after)
-        .then(() =>
-          setStats((current) => ({ ...current, persistenceState: "saved" })),
-        )
-        .catch(() =>
-          setStats((current) => ({ ...current, persistenceState: "error" })),
-        );
+      void saveCanvasObject(projectId, after).catch(reportLocalCacheError);
       queueRemoteSync(async () => {
         const saved = await saveRemoteObject(supabase, remoteContext, after);
         objectsRef.current = objectsRef.current.map((current) =>
@@ -2653,13 +2682,14 @@ export function PhaseOneCanvas({
         setPropertiesObject((current) =>
           current?.id === saved.id ? { ...saved } : current,
         );
-        await saveCanvasObject(projectId, saved);
+        void saveCanvasObject(projectId, saved).catch(reportLocalCacheError);
       });
     },
     [
       invalidateSnapshots,
       projectId,
       queueRemoteSync,
+      reportLocalCacheError,
       remoteContext,
       scheduleRender,
       supabase,
@@ -2710,7 +2740,9 @@ export function PhaseOneCanvas({
         selectedObjectIdRef.current = canvasObject.id;
         setSelectedObjectId(canvasObject.id);
         setTool("object");
-        await saveCanvasObject(projectId, canvasObject);
+        void saveCanvasObject(projectId, canvasObject).catch(
+          reportLocalCacheError,
+        );
         queueRemoteSync(async () => {
           const saved = await saveRemoteObject(
             supabase,
@@ -2720,7 +2752,7 @@ export function PhaseOneCanvas({
           objectsRef.current = objectsRef.current.map((current) =>
             current.id === saved.id ? saved : current,
           );
-          await saveCanvasObject(projectId, saved);
+          void saveCanvasObject(projectId, saved).catch(reportLocalCacheError);
         });
         scheduleRender();
       } catch {
@@ -2731,6 +2763,7 @@ export function PhaseOneCanvas({
       invalidateSnapshots,
       projectId,
       queueRemoteSync,
+      reportLocalCacheError,
       remoteContext,
       scheduleRender,
       supabase,
@@ -3021,7 +3054,9 @@ export function PhaseOneCanvas({
         }
         setAiError(null);
         invalidateSnapshots();
-        await saveCanvasObject(projectId, canvasObject);
+        void saveCanvasObject(projectId, canvasObject).catch(
+          reportLocalCacheError,
+        );
         queueRemoteSync(async () => {
           const saved = await saveRemoteObject(
             supabase,
@@ -3031,7 +3066,7 @@ export function PhaseOneCanvas({
           objectsRef.current = objectsRef.current.map((current) =>
             current.id === saved.id ? saved : current,
           );
-          await saveCanvasObject(projectId, saved);
+          void saveCanvasObject(projectId, saved).catch(reportLocalCacheError);
         });
         scheduleRender();
         if (inPlace) {
@@ -3067,6 +3102,7 @@ export function PhaseOneCanvas({
       persistLayerChanges,
       projectId,
       queueRemoteSync,
+      reportLocalCacheError,
       remoteContext,
       scheduleRender,
       supabase,
