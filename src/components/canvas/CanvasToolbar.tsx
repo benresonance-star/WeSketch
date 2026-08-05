@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import {
+  Bot,
   Eraser,
   Hand,
   ImagePlus,
@@ -22,6 +23,7 @@ import { LayersPanel } from "@/components/canvas/LayersPanel";
 import type { BrushSettings, CanvasLayer, Tool } from "@/types/canvas";
 
 type CanvasToolbarProps = {
+  isAgentPanelOpen: boolean;
   tool: Tool;
   brushSettings: BrushSettings;
   layers: CanvasLayer[];
@@ -36,6 +38,7 @@ type CanvasToolbarProps = {
   onLayerAdd: () => void;
   onLayerChange: (layer: CanvasLayer) => void;
   onLayerMove: (id: string, direction: "up" | "down") => void;
+  onToggleAgentPanel: () => void;
 };
 
 const TOOLS: Array<{
@@ -58,6 +61,7 @@ const TOOLS: Array<{
 const BRUSH_PALETTE_LAYOUT_KEY = "wesketch-brush-palette-layout-v1";
 
 export function CanvasToolbar({
+  isAgentPanelOpen,
   tool,
   brushSettings,
   layers,
@@ -72,6 +76,7 @@ export function CanvasToolbar({
   onLayerAdd,
   onLayerChange,
   onLayerMove,
+  onToggleAgentPanel,
 }: CanvasToolbarProps) {
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isLayersOpen, setIsLayersOpen] = useState(false);
@@ -94,6 +99,16 @@ export function CanvasToolbar({
   return (
     <>
       <aside className="tool-rail" aria-label="Canvas tools">
+        <button
+          aria-expanded={isAgentPanelOpen}
+          aria-label="Toggle design partner panel"
+          className={isAgentPanelOpen ? "tool-button active" : "tool-button"}
+          onClick={onToggleAgentPanel}
+          type="button"
+        >
+          <Bot aria-hidden="true" className="tool-icon" />
+          Agent
+        </button>
         <button
           aria-pressed={tool === "pen"}
           className={tool === "pen" ? "tool-button active" : "tool-button"}

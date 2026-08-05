@@ -457,6 +457,7 @@ export function PhaseOneCanvas({
   const [imageQuality, setImageQuality] =
     useState<ImageGenerationQuality>("low");
   const [imageSize, setImageSize] = useState<ImageGenerationSize>("1024x1024");
+  const [isAgentPanelOpen, setIsAgentPanelOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [stats, setStats] = useState<PrototypeStats>(INITIAL_STATS);
 
@@ -3336,7 +3337,12 @@ export function PhaseOneCanvas({
             aria-expanded={isSettingsOpen}
             aria-label="Project settings"
             className="project-settings-button"
-            onClick={() => setIsSettingsOpen((current) => !current)}
+            onClick={() => {
+              if (!isSettingsOpen) {
+                setIsAgentPanelOpen(true);
+              }
+              setIsSettingsOpen((current) => !current);
+            }}
             type="button"
           >
             <Settings aria-hidden="true" strokeWidth={1.5} />
@@ -3344,10 +3350,15 @@ export function PhaseOneCanvas({
         </div>
       </header>
 
-      <section className="prototype-workspace">
+      <section
+        className={`prototype-workspace ${
+          isAgentPanelOpen ? "agent-panel-open" : "agent-panel-collapsed"
+        }`}
+      >
         <CanvasToolbar
           activeLayerId={activeLayerId}
           brushSettings={brushSettings}
+          isAgentPanelOpen={isAgentPanelOpen}
           layers={layers}
           onBrushSettingsChange={setBrushSettings}
           onFit={fitToScreen}
@@ -3357,6 +3368,9 @@ export function PhaseOneCanvas({
           onLayerChange={changeLayer}
           onLayerMove={moveLayer}
           onRedo={redo}
+          onToggleAgentPanel={() =>
+            setIsAgentPanelOpen((current) => !current)
+          }
           onToolChange={handleToolChange}
           onUndo={undo}
           tool={tool}
@@ -3440,43 +3454,49 @@ export function PhaseOneCanvas({
           />
         ) : null}
 
-        <ContextPanel
-          aiError={aiError}
-          aiState={aiState}
-          canvasColor={canvasColor}
-          dpr={dpr}
-          hasSelection={selection !== null}
-          imageQuality={imageQuality}
-          imageSize={imageSize}
-          includeCanvas={includeCanvas}
-          includeNeighbourhood={includeNeighbourhood}
-          isSettingsOpen={isSettingsOpen}
-          messages={messages}
-          onAddGeneratedImage={addGeneratedImageToCanvas}
-          onApplyUiConfiguration={applyUiConfiguration}
-          onCancelGeneration={cancelImageGeneration}
-          onCanvasColorChange={changeCanvasColor}
-          onClear={clearDocument}
-          onDprChange={setDpr}
-          onDeleteUiConfiguration={deleteUiConfiguration}
-          onIncludeCanvasChange={setIncludeCanvas}
-          onIncludeNeighbourhoodChange={setIncludeNeighbourhood}
-          onImageQualityChange={setImageQuality}
-          onImageSizeChange={setImageSize}
-          onGenerateImage={generateImage}
-          onPrepareContext={prepareContext}
-          onPromptChange={setPrompt}
-          onSaveUiConfiguration={saveUiConfiguration}
-          onSendPrompt={sendPrompt}
-          onSettingsClose={() => setIsSettingsOpen(false)}
-          onThemeModeChange={changeThemeMode}
-          prompt={prompt}
-          savedUiConfigurations={savedUiConfigurations}
-          snapshotState={snapshotState}
-          snapshots={snapshots}
-          stats={stats}
-          themeMode={themeMode}
-        />
+        <div
+          aria-hidden={!isAgentPanelOpen}
+          className="agent-panel-shell"
+          inert={!isAgentPanelOpen ? true : undefined}
+        >
+          <ContextPanel
+            aiError={aiError}
+            aiState={aiState}
+            canvasColor={canvasColor}
+            dpr={dpr}
+            hasSelection={selection !== null}
+            imageQuality={imageQuality}
+            imageSize={imageSize}
+            includeCanvas={includeCanvas}
+            includeNeighbourhood={includeNeighbourhood}
+            isSettingsOpen={isSettingsOpen}
+            messages={messages}
+            onAddGeneratedImage={addGeneratedImageToCanvas}
+            onApplyUiConfiguration={applyUiConfiguration}
+            onCancelGeneration={cancelImageGeneration}
+            onCanvasColorChange={changeCanvasColor}
+            onClear={clearDocument}
+            onDprChange={setDpr}
+            onDeleteUiConfiguration={deleteUiConfiguration}
+            onIncludeCanvasChange={setIncludeCanvas}
+            onIncludeNeighbourhoodChange={setIncludeNeighbourhood}
+            onImageQualityChange={setImageQuality}
+            onImageSizeChange={setImageSize}
+            onGenerateImage={generateImage}
+            onPrepareContext={prepareContext}
+            onPromptChange={setPrompt}
+            onSaveUiConfiguration={saveUiConfiguration}
+            onSendPrompt={sendPrompt}
+            onSettingsClose={() => setIsSettingsOpen(false)}
+            onThemeModeChange={changeThemeMode}
+            prompt={prompt}
+            savedUiConfigurations={savedUiConfigurations}
+            snapshotState={snapshotState}
+            snapshots={snapshots}
+            stats={stats}
+            themeMode={themeMode}
+          />
+        </div>
       </section>
     </main>
   );

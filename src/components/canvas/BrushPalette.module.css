@@ -18,10 +18,13 @@
 }
 
 .root :global(.brush-layout-toggle),
-.root :global(.brush-preview),
-.root :global(.brush-pressure-toggle) {
+.root :global(.brush-preview) {
   background: var(--control);
   border-color: var(--line);
+}
+
+.root :global(.brush-pressure-toggle) {
+  background: transparent;
 }
 
 .root :global(.brush-layout-toggle button) {

@@ -1,8 +1,16 @@
+"use client";
+
+import {
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   ChevronDown,
   ChevronUp,
   Eye,
   EyeOff,
+  GripVertical,
   Plus,
   X,
 } from "lucide-react";
@@ -20,6 +28,8 @@ type LayersPanelProps = {
   onMove: (id: string, direction: "up" | "down") => void;
 };
 
+const INITIAL_POSITION = { x: 84, y: 88 };
+
 export function LayersPanel({
   activeLayerId,
   layers,
@@ -29,14 +39,98 @@ export function LayersPanel({
   onClose,
   onMove,
 }: LayersPanelProps) {
+  const panelRef = useRef<HTMLElement>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    originX: number;
+    originY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const [position, setPosition] = useState(INITIAL_POSITION);
   const sortedLayers = [...layers].sort(
     (first, second) => second.order - first.order,
   );
 
+  const clampPosition = (x: number, y: number) => {
+    const bounds = panelRef.current?.getBoundingClientRect();
+    const width = bounds?.width ?? 240;
+    const height = bounds?.height ?? 64;
+
+    return {
+      x: Math.min(Math.max(8, window.innerWidth - width - 8), Math.max(8, x)),
+      y: Math.min(
+        Math.max(8, window.innerHeight - Math.min(height, 64) - 8),
+        Math.max(8, y),
+      ),
+    };
+  };
+
+  const beginDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Safari can reject capture after a system cancellation.
+    }
+    dragRef.current = {
+      pointerId: event.pointerId,
+      originX: event.clientX,
+      originY: event.clientY,
+      startX: position.x,
+      startY: position.y,
+    };
+  };
+
+  const moveDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    setPosition(
+      clampPosition(
+        drag.startX + event.clientX - drag.originX,
+        drag.startY + event.clientY - drag.originY,
+      ),
+    );
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) {
+      return;
+    }
+    dragRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Capture may already be released after a system cancellation.
+    }
+  };
+
   return (
-    <section aria-label="Layers" className={styles.panel}>
+    <section
+      aria-label="Layers"
+      className={styles.panel}
+      ref={panelRef}
+      style={{ left: position.x, top: position.y }}
+    >
       <header className={styles.header}>
-        <div>
+        <button
+          aria-label="Move layers panel"
+          className={styles.dragHandle}
+          onPointerCancel={endDrag}
+          onPointerDown={beginDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          type="button"
+        >
+          <GripVertical aria-hidden="true" />
+        </button>
+        <div className={styles.title}>
           <p className="eyebrow">Canvas stack</p>
           <strong>Layers</strong>
         </div>
