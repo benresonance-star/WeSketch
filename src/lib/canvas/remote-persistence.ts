@@ -14,6 +14,7 @@ export type RemoteScene = {
   layers: CanvasLayer[];
   strokes: Stroke[];
   objects: CanvasImageObject[];
+  objectLoadErrorCount: number;
 };
 
 type RemoteStrokeRow = {
@@ -122,7 +123,7 @@ export async function loadRemoteScene(
       createdAt: new Date(row.created_at).getTime(),
     }),
   );
-  const objects = await Promise.all(
+  const objectResults = await Promise.allSettled(
     ((objectResult.data as RemoteObjectRow[] | null) ?? []).map(async (row) => {
       const storagePath = row.data.storagePath;
 
@@ -157,6 +158,10 @@ export async function loadRemoteScene(
       };
     }),
   );
+  const objects = objectResults.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
+  const objectLoadErrorCount = objectResults.length - objects.length;
 
   const layers = ((layerResult.data as RemoteLayerRow[] | null) ?? []).map(
     (row) => ({
@@ -169,7 +174,12 @@ export async function loadRemoteScene(
     }),
   );
 
-  return { layers, strokes: strokes ?? [], objects };
+  return {
+    layers,
+    strokes: strokes ?? [],
+    objects,
+    objectLoadErrorCount,
+  };
 }
 
 export async function saveRemoteStroke(

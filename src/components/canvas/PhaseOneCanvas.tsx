@@ -1432,13 +1432,23 @@ export function PhaseOneCanvas({
       strokes: Stroke[],
       objects: CanvasImageObject[],
       sceneLayers: CanvasLayer[],
+      objectLoadErrorCount = 0,
     ) => {
-      const decoded = await Promise.all(
+      const decodedResults = await Promise.allSettled(
         objects.map(async (canvasObject) => ({
           id: canvasObject.id,
           source: await decodeImageBlob(canvasObject.blob),
         })),
       );
+      const decoded = decodedResults.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      const failedObjectIds = new Set(
+        decodedResults.flatMap((result, index) =>
+          result.status === "rejected" ? [objects[index].id] : [],
+        ),
+      );
+      const failedImageCount = objectLoadErrorCount + failedObjectIds.size;
 
       if (cancelled) {
         decoded.forEach(({ source }) => source.close());
@@ -1465,16 +1475,19 @@ export function PhaseOneCanvas({
       strokesRef.current = strokes.sort(
         (first, second) => first.createdAt - second.createdAt,
       );
-      objectsRef.current = objects.sort(
-        (first, second) => first.zIndex - second.zIndex,
-      );
+      objectsRef.current = objects
+        .filter((canvasObject) => !failedObjectIds.has(canvasObject.id))
+        .sort((first, second) => first.zIndex - second.zIndex);
       decoded.forEach(({ id, source }) => {
         imageSourcesRef.current.set(id, source);
       });
       setStats((current) => ({
         ...current,
         persistenceState: "saved",
-        persistenceError: null,
+        persistenceError:
+          failedImageCount > 0
+            ? `Skipped ${failedImageCount} image${failedImageCount === 1 ? "" : "s"} that could not be restored. Strokes and layers are synced.`
+            : null,
       }));
       scheduleRender();
     };
@@ -1596,7 +1609,12 @@ export function PhaseOneCanvas({
           }),
         );
 
-        await applyScene(mergedStrokes, mergedObjects, mergedLayers);
+        await applyScene(
+          mergedStrokes,
+          mergedObjects,
+          mergedLayers,
+          remote.objectLoadErrorCount,
+        );
         scheduleThumbnailSave();
         try {
           await Promise.all([

@@ -339,6 +339,9 @@ export function ContextPanel({
           Project sync: {stats.persistenceState}
         </span>
       </div>
+      {stats.persistenceError ? (
+        <p className="error-note">{stats.persistenceError}</p>
+      ) : null}
 
       <div className="diagnostic-actions">
         <button
