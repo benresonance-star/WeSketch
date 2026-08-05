@@ -17,10 +17,23 @@ export async function GET(request: Request) {
     return new Response("Asset not found.", { status: 404 });
   }
 
-  return new Response(data, {
+  const body = await data.arrayBuffer();
+  const contentType =
+    data.type.startsWith("image/")
+      ? data.type
+      : path.endsWith(".webp")
+        ? "image/webp"
+        : path.endsWith(".png")
+          ? "image/png"
+          : path.match(/\.jpe?g$/i)
+            ? "image/jpeg"
+            : "application/octet-stream";
+
+  return new Response(body, {
     headers: {
       "Cache-Control": "private, no-store",
-      "Content-Type": data.type || "application/octet-stream",
+      "Content-Length": String(body.byteLength),
+      "Content-Type": contentType,
     },
   });
 }
