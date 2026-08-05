@@ -630,27 +630,20 @@ export function PhaseOneCanvas({
             if (!artifact.source_ai_run_id) {
               return;
             }
-            const { data: blob } = await supabase.storage
-              .from("project-assets")
-              .download(artifact.storage_path);
-            if (blob) {
-              const url = URL.createObjectURL(blob);
-              messageSelectionUrlsRef.current.add(url);
-              generatedArtifacts.set(artifact.source_ai_run_id, {
-                artifactId: artifact.id,
-                storagePath: artifact.storage_path,
-                url,
-                intent: isImageGenerationIntent(
-                  (artifact.metadata as { intent?: unknown } | null)?.intent,
-                )
-                  ? (artifact.metadata as { intent: ImageGenerationIntent }).intent
-                  : generationIntents.get(artifact.source_ai_run_id),
-                placement: parseGenerationPlacement(
-                  (artifact.metadata as { placement?: unknown } | null)
-                    ?.placement,
-                ),
-              });
-            }
+            const url = `/api/project-assets?path=${encodeURIComponent(artifact.storage_path)}`;
+            generatedArtifacts.set(artifact.source_ai_run_id, {
+              artifactId: artifact.id,
+              storagePath: artifact.storage_path,
+              url,
+              intent: isImageGenerationIntent(
+                (artifact.metadata as { intent?: unknown } | null)?.intent,
+              )
+                ? (artifact.metadata as { intent: ImageGenerationIntent }).intent
+                : generationIntents.get(artifact.source_ai_run_id),
+              placement: parseGenerationPlacement(
+                (artifact.metadata as { placement?: unknown } | null)?.placement,
+              ),
+            });
           }),
         );
       }

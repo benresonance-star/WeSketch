@@ -82,6 +82,17 @@ function throwIfError(error: { message: string } | null) {
   }
 }
 
+async function downloadProjectAsset(storagePath: string): Promise<Blob> {
+  const response = await fetch(
+    `/api/project-assets?path=${encodeURIComponent(storagePath)}`,
+    { cache: "no-store" },
+  );
+  if (!response.ok) {
+    throw new Error(`Image asset download failed (${response.status}).`);
+  }
+  return response.blob();
+}
+
 export async function loadRemoteScene(
   supabase: SupabaseClient,
   context: RemoteSceneContext,
@@ -131,13 +142,7 @@ export async function loadRemoteScene(
         throw new Error(`Image object ${row.id} has no storage path.`);
       }
 
-      const { data: blob, error } = await supabase.storage
-        .from(ASSET_BUCKET)
-        .download(storagePath);
-      throwIfError(error);
-      if (!blob) {
-        throw new Error(`Image object ${row.id} could not be downloaded.`);
-      }
+      const blob = await downloadProjectAsset(storagePath);
 
       return {
         id: row.id,
