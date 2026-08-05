@@ -17,8 +17,7 @@
 .header,
 .headerActions,
 .rowMain,
-.orderActions,
-.row label {
+.orderActions {
   align-items: center;
   display: flex;
 }
@@ -93,7 +92,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 8px;
+  scrollbar-gutter: stable;
   touch-action: pan-y;
   width: 100%;
   -webkit-overflow-scrolling: touch;
@@ -106,7 +105,9 @@
   box-sizing: border-box;
   display: grid;
   gap: 7px;
+  max-width: 100%;
   min-width: 0;
+  overflow: hidden;
   padding: 7px;
   width: 100%;
 }
@@ -152,7 +153,12 @@
   width: 100%;
 }
 
-.row label input {
+.row label input[type="range"] {
+  accent-color: var(--accent);
+  box-sizing: border-box;
+  height: 24px;
+  margin: 0;
+  max-width: 100%;
   min-width: 0;
   width: 100%;
 }
