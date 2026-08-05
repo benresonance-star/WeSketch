@@ -84,8 +84,10 @@
 }
 
 .list {
+  align-content: start;
   display: grid;
   gap: 7px;
+  grid-auto-rows: max-content;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -103,7 +105,6 @@
   display: grid;
   gap: 7px;
   min-width: 0;
-  overflow: hidden;
   padding: 7px;
   width: 100%;
 }

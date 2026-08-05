@@ -48,7 +48,6 @@ const TOOLS: Array<{
   separatorBefore?: boolean;
 }> = [
   { tool: "eraser", icon: Eraser, label: "Eraser" },
-  { tool: "rectangle", icon: ScanSearch, label: "Select for AI" },
   { tool: "lasso", icon: LassoSelect, label: "Lasso" },
   {
     tool: "object",
@@ -110,6 +109,33 @@ export function CanvasToolbar({
           Agent
         </button>
         <button
+          aria-pressed={tool === "rectangle"}
+          className={tool === "rectangle" ? "tool-button active" : "tool-button"}
+          onClick={() => {
+            setIsPaletteOpen(false);
+            onToolChange("rectangle");
+          }}
+          type="button"
+        >
+          <ScanSearch aria-hidden="true" className="tool-icon" />
+          Select for AI
+        </button>
+        <div aria-hidden="true" className="tool-divider" />
+        <button
+          aria-expanded={isLayersOpen}
+          className={isLayersOpen ? "tool-button active" : "tool-button"}
+          onClick={() => setIsLayersOpen((current) => !current)}
+          type="button"
+        >
+          <LayersIcon aria-hidden="true" className="tool-icon" />
+          Layers
+        </button>
+        <button className="tool-button" onClick={onImport} type="button">
+          <ImagePlus aria-hidden="true" className="tool-icon" />
+          Image
+        </button>
+        <div aria-hidden="true" className="tool-divider" />
+        <button
           aria-pressed={tool === "pen"}
           className={tool === "pen" ? "tool-button active" : "tool-button"}
           onClick={() => {
@@ -165,20 +191,6 @@ export function CanvasToolbar({
             </Fragment>
           );
         })}
-        <button
-          aria-expanded={isLayersOpen}
-          className={isLayersOpen ? "tool-button active" : "tool-button"}
-          onClick={() => setIsLayersOpen((current) => !current)}
-          type="button"
-        >
-          <LayersIcon aria-hidden="true" className="tool-icon" />
-          Layers
-        </button>
-        <div className="tool-divider" />
-        <button className="tool-button" onClick={onImport} type="button">
-          <ImagePlus aria-hidden="true" className="tool-icon" />
-          Image
-        </button>
         <button className="tool-button" onClick={onUndo} type="button">
           <Undo2 aria-hidden="true" className="tool-icon" />
           Undo
