@@ -136,7 +136,9 @@ export function BrushPalette({
 
       <label className="brush-pressure-toggle">
         <span>
-          <strong>Apple Pencil pressure</strong>
+          <strong>
+            {layout === "horizontal" ? "Pressure" : "Apple Pencil pressure"}
+          </strong>
           <small>Light touch stays fine; firm strokes reach full size.</small>
         </span>
         <input

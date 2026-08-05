@@ -87,10 +87,11 @@
   display: grid;
   gap: 7px;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   touch-action: pan-y;
+  width: 100%;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -98,9 +99,13 @@
   background: var(--control-subtle);
   border: 1px solid transparent;
   border-radius: 10px;
+  box-sizing: border-box;
   display: grid;
   gap: 7px;
+  min-width: 0;
+  overflow: hidden;
   padding: 7px;
+  width: 100%;
 }
 
 .row.active {
@@ -136,19 +141,23 @@
 
 .row label {
   color: var(--muted);
+  display: grid;
   font-size: 10px;
   gap: 7px;
+  grid-template-columns: auto minmax(0, 1fr) 28px;
+  min-width: 0;
+  width: 100%;
 }
 
 .row label input {
-  flex: 1 1 auto;
   min-width: 0;
+  width: 100%;
 }
 
 .row output {
   font-variant-numeric: tabular-nums;
   text-align: right;
-  width: 32px;
+  width: 28px;
 }
 
 @media (max-width: 520px) {

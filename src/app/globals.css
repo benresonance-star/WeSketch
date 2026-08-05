@@ -183,40 +183,50 @@ button {
 
 .prototype-workspace {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 280px;
+  grid-template-columns: 72px minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
   position: relative;
-  transition: grid-template-columns 500ms ease;
 }
 
 .prototype-workspace.agent-panel-collapsed {
-  grid-template-columns: 72px minmax(0, 1fr) 0;
+  grid-template-columns: 72px minmax(0, 1fr);
 }
 
 .agent-panel-shell {
+  bottom: 0;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
   pointer-events: auto;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transform: translateX(0);
+  transition:
+    transform 500ms ease,
+    visibility 0s;
   visibility: visible;
+  width: 280px;
+  z-index: 11;
 }
 
 .agent-panel-shell .diagnostics-panel {
   height: 100%;
-  transform: translateX(0);
-  transition: transform 500ms ease;
-  width: 280px;
+  width: 100%;
 }
 
 .agent-panel-collapsed .agent-panel-shell {
   pointer-events: none;
-  transition: visibility 0s 500ms;
+  transform: translateX(100%);
+  transition:
+    transform 500ms ease,
+    visibility 0s 500ms;
   visibility: hidden;
 }
 
 .agent-panel-collapsed .agent-panel-shell .diagnostics-panel {
-  transform: translateX(100%);
+  transform: none;
 }
 
 .tool-rail {
@@ -1780,28 +1790,11 @@ select:focus-visible {
   }
 
   .agent-panel-shell {
-    bottom: 0;
-    position: absolute;
-    right: 0;
-    top: 0;
-    transform: translateX(0);
-    transition:
-      transform 500ms ease,
-      visibility 0s;
     width: min(280px, calc(100vw - 64px));
-    z-index: 11;
   }
 
   .agent-panel-shell .diagnostics-panel {
-    transform: none;
     width: 100%;
-  }
-
-  .agent-panel-collapsed .agent-panel-shell {
-    transform: translateX(100%);
-    transition:
-      transform 500ms ease,
-      visibility 0s 500ms;
   }
 
   .brush-popover.horizontal {

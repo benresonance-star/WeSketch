@@ -316,9 +316,10 @@ export async function POST(request: Request) {
             .toBuffer()
         : generatedImageBuffer;
     const responseImageBase64 = imageBuffer.toString("base64");
+    const uploadBytes = Uint8Array.from(imageBuffer);
     const { error: uploadError } = await supabase.storage
       .from("project-assets")
-      .upload(storagePath, imageBuffer, {
+      .upload(storagePath, uploadBytes.buffer, {
         contentType: "image/webp",
         upsert: false,
       });
