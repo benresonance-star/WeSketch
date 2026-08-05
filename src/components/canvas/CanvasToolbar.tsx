@@ -47,7 +47,6 @@ const TOOLS: Array<{
   label: string;
   separatorBefore?: boolean;
 }> = [
-  { tool: "eraser", icon: Eraser, label: "Eraser" },
   { tool: "lasso", icon: LassoSelect, label: "Lasso" },
   {
     tool: "object",
@@ -99,6 +98,51 @@ export function CanvasToolbar({
     <>
       <aside className="tool-rail" aria-label="Canvas tools">
         <button
+          aria-pressed={tool === "pen"}
+          className={tool === "pen" ? "tool-button active" : "tool-button"}
+          onClick={() => {
+            onToolChange("pen");
+            setIsPaletteOpen((current) => (tool === "pen" ? !current : true));
+          }}
+          type="button"
+        >
+          <PenLine aria-hidden="true" className="tool-icon" />
+          Pen
+        </button>
+        <button
+          aria-expanded={isPaletteOpen}
+          aria-label="Open pen palette"
+          className="tool-button brush-tool-button"
+          onClick={() => {
+            onToolChange("pen");
+            setIsPaletteOpen(true);
+          }}
+          type="button"
+        >
+          <span
+            className="brush-tool-swatch"
+            style={{
+              backgroundColor: brushSettings.color,
+              width: `${Math.min(28, 12 + brushSettings.size / 2)}px`,
+              height: `${Math.min(28, 12 + brushSettings.size / 2)}px`,
+            }}
+          />
+          {brushSettings.size.toFixed(1)}
+        </button>
+        <button
+          aria-pressed={tool === "eraser"}
+          className={tool === "eraser" ? "tool-button active" : "tool-button"}
+          onClick={() => {
+            setIsPaletteOpen(false);
+            onToolChange("eraser");
+          }}
+          type="button"
+        >
+          <Eraser aria-hidden="true" className="tool-icon" />
+          Eraser
+        </button>
+        <div aria-hidden="true" className="tool-divider" />
+        <button
           aria-expanded={isAgentPanelOpen}
           aria-label="Toggle design partner panel"
           className={isAgentPanelOpen ? "tool-button active" : "tool-button"}
@@ -135,38 +179,6 @@ export function CanvasToolbar({
           Image
         </button>
         <div aria-hidden="true" className="tool-divider" />
-        <button
-          aria-pressed={tool === "pen"}
-          className={tool === "pen" ? "tool-button active" : "tool-button"}
-          onClick={() => {
-            onToolChange("pen");
-            setIsPaletteOpen((current) => (tool === "pen" ? !current : true));
-          }}
-          type="button"
-        >
-          <PenLine aria-hidden="true" className="tool-icon" />
-          Pen
-        </button>
-        <button
-          aria-expanded={isPaletteOpen}
-          aria-label="Open pen palette"
-          className="tool-button brush-tool-button"
-          onClick={() => {
-            onToolChange("pen");
-            setIsPaletteOpen(true);
-          }}
-          type="button"
-        >
-          <span
-            className="brush-tool-swatch"
-            style={{
-              backgroundColor: brushSettings.color,
-              width: `${Math.min(28, 12 + brushSettings.size / 2)}px`,
-              height: `${Math.min(28, 12 + brushSettings.size / 2)}px`,
-            }}
-          />
-          {brushSettings.size.toFixed(1)}
-        </button>
         {TOOLS.map((item) => {
           const Icon = item.icon;
           return (

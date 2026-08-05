@@ -85,6 +85,7 @@
 
 .list {
   align-content: start;
+  box-sizing: border-box;
   display: grid;
   gap: 7px;
   grid-auto-rows: max-content;
@@ -92,6 +93,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding-right: 8px;
   touch-action: pan-y;
   width: 100%;
   -webkit-overflow-scrolling: touch;
