@@ -457,7 +457,7 @@ export function PhaseOneCanvas({
   const [imageQuality, setImageQuality] =
     useState<ImageGenerationQuality>("low");
   const [imageSize, setImageSize] = useState<ImageGenerationSize>("1024x1024");
-  const [isAgentPanelOpen, setIsAgentPanelOpen] = useState(true);
+  const [isAgentPanelOpen, setIsAgentPanelOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [stats, setStats] = useState<PrototypeStats>(INITIAL_STATS);
 

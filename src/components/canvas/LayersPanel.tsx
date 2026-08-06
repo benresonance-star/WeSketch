@@ -13,6 +13,7 @@ import {
   EyeOff,
   GripVertical,
   Plus,
+  SlidersHorizontal,
   X,
 } from "lucide-react";
 
@@ -50,6 +51,7 @@ export function LayersPanel({
     startY: number;
   } | null>(null);
   const [position, setPosition] = useState(INITIAL_POSITION);
+  const [isDetailedView, setIsDetailedView] = useState(false);
   const sortedLayers = [...layers].sort(
     (first, second) => second.order - first.order,
   );
@@ -72,7 +74,7 @@ export function LayersPanel({
     observer.observe(list);
 
     return () => observer.disconnect();
-  }, [sortedLayers.length]);
+  }, [isDetailedView, sortedLayers.length]);
 
   const clampPosition = (x: number, y: number) => {
     const bounds = panelRef.current?.getBoundingClientRect();
@@ -136,7 +138,7 @@ export function LayersPanel({
   return (
     <section
       aria-label="Layers"
-      className={styles.panel}
+      className={`${styles.panel} ${isDetailedView ? styles.detailed : ""}`}
       ref={panelRef}
       style={{ left: position.x, top: position.y }}
     >
@@ -159,6 +161,19 @@ export function LayersPanel({
         <div className={styles.headerActions}>
           <button aria-label="Add layer" onClick={onAdd} type="button">
             <Plus aria-hidden="true" />
+          </button>
+          <button
+            aria-label={
+              isDetailedView
+                ? "Show simple layer list"
+                : "Show layer opacity and order controls"
+            }
+            aria-pressed={isDetailedView}
+            className={isDetailedView ? styles.detailToggleActive : undefined}
+            onClick={() => setIsDetailedView((current) => !current)}
+            type="button"
+          >
+            <SlidersHorizontal aria-hidden="true" />
           </button>
           <button aria-label="Close layers" onClick={onClose} type="button">
             <X aria-hidden="true" />
@@ -230,7 +245,7 @@ export function LayersPanel({
                 </button>
               </div>
             </div>
-            <label>
+            <label className={styles.opacityRow}>
               <span>Opacity</span>
               <input
                 max={100}

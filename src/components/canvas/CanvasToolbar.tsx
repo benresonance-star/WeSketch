@@ -48,13 +48,8 @@ const TOOLS: Array<{
   separatorBefore?: boolean;
 }> = [
   { tool: "lasso", icon: LassoSelect, label: "Lasso" },
-  {
-    tool: "object",
-    icon: MousePointer2,
-    label: "Object",
-    separatorBefore: true,
-  },
-  { tool: "hand", icon: Hand, label: "Hand" },
+  { tool: "object", icon: MousePointer2, label: "Object" },
+  { tool: "hand", icon: Hand, label: "Pan", separatorBefore: true },
 ];
 const BRUSH_PALETTE_LAYOUT_KEY = "wesketch-brush-palette-layout-v1";
 
@@ -111,11 +106,11 @@ export function CanvasToolbar({
         </button>
         <button
           aria-expanded={isPaletteOpen}
-          aria-label="Open pen palette"
+          aria-label="Toggle pen palette"
           className="tool-button brush-tool-button"
           onClick={() => {
             onToolChange("pen");
-            setIsPaletteOpen(true);
+            setIsPaletteOpen((current) => (tool === "pen" ? !current : true));
           }}
           type="button"
         >
@@ -174,6 +169,7 @@ export function CanvasToolbar({
           <LayersIcon aria-hidden="true" className="tool-icon" />
           Layers
         </button>
+        <div aria-hidden="true" className="tool-divider" />
         <button className="tool-button" onClick={onImport} type="button">
           <ImagePlus aria-hidden="true" className="tool-icon" />
           Image

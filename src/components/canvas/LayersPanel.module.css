@@ -68,6 +68,13 @@
   opacity: 0.25;
 }
 
+.detailToggleActive,
+.detailToggleActive:active,
+.detailToggleActive:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .panel button svg {
   height: 18px;
   width: 18px;
@@ -152,7 +159,17 @@
   width: 24px;
 }
 
-.row label {
+.panel:not(.detailed) .row {
+  gap: 0;
+  padding-block: 4px;
+}
+
+.panel:not(.detailed) .orderActions,
+.panel:not(.detailed) .opacityRow {
+  display: none;
+}
+
+.opacityRow {
   color: var(--muted);
   display: grid;
   font-size: 10px;
@@ -162,7 +179,7 @@
   width: 100%;
 }
 
-.row label input[type="range"] {
+.opacityRow input[type="range"] {
   accent-color: var(--accent);
   box-sizing: border-box;
   height: 24px;
