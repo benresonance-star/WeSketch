@@ -15,11 +15,14 @@ export default async function HomePage() {
     redirect("/login");
   }
 
+  const userId = claimsData.claims.sub;
+
   const { data: projects, error } = await supabase
     .from("projects")
     .select(
       "id, title, updated_at, archived_at, sort_order, thumbnail_path, canvases ( background )",
     )
+    .eq("owner_id", userId)
     .order("sort_order", { ascending: true })
     .order("updated_at", { ascending: false });
 
@@ -27,17 +30,7 @@ export default async function HomePage() {
     throw new Error(error.message);
   }
 
-  const projectItems = await Promise.all(
-    (projects ?? []).map(async (project) => {
-      let thumbnailUrl: string | null = null;
-
-      if (project.thumbnail_path) {
-        const { data: signedUrl } = await supabase.storage
-          .from("project-assets")
-          .createSignedUrl(project.thumbnail_path, 60 * 60);
-        thumbnailUrl = signedUrl?.signedUrl ?? null;
-      }
-
+  const projectItems = (projects ?? []).map((project) => {
       const canvasBackground = project.canvases?.[0]?.background as
         | CanvasBackground
         | undefined;
@@ -47,11 +40,12 @@ export default async function HomePage() {
         title: project.title,
         updatedAt: project.updated_at,
         archivedAt: project.archived_at,
-        thumbnailUrl,
+        thumbnailUrl: project.thumbnail_path
+          ? `/api/project-assets?path=${encodeURIComponent(project.thumbnail_path)}`
+          : null,
         canvasColor: canvasBackground?.color ?? "#fbfaf6",
       };
-    }),
-  );
+    });
 
   return <ProjectsView projects={projectItems} />;
 }

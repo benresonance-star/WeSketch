@@ -2,6 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { streamText, type ModelMessage, type UserContent } from "ai";
 import { NextResponse } from "next/server";
 
+import { assertOwnedCanvasAccess } from "@/lib/supabase/access-control";
 import { createClient } from "@/lib/supabase/server";
 
 export const maxDuration = 60;
@@ -67,6 +68,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
+  const hasCanvasAccess = await assertOwnedCanvasAccess(
+    supabase,
+    userId,
+    body.projectId,
+    body.canvasId,
+  );
+  if (!hasCanvasAccess) {
+    return NextResponse.json(
+      { error: "Project or canvas was not found." },
+      { status: 404 },
+    );
+  }
+
   const { data: contextSnapshot, error: contextError } = await supabase
     .from("context_snapshots")
     .select(
@@ -88,6 +102,7 @@ export async function POST(request: Request) {
       .from("conversations")
       .select("id")
       .eq("id", conversationId)
+      .eq("user_id", userId)
       .eq("project_id", body.projectId)
       .eq("canvas_id", body.canvasId)
       .single();

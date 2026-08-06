@@ -23,6 +23,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     .from("projects")
     .select("id, title, canvases(id, background)")
     .eq("id", projectId)
+    .eq("owner_id", userId)
     .single();
   const canvasId = project?.canvases?.[0]?.id;
   const canvasBackground = project?.canvases?.[0]?.background as

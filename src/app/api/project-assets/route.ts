@@ -1,3 +1,7 @@
+import {
+  getAuthenticatedUserId,
+  isOwnedAssetPath,
+} from "@/lib/supabase/access-control";
 import { createClient } from "@/lib/supabase/server";
 
 const ASSET_BUCKET = "project-assets";
@@ -9,6 +13,16 @@ export async function GET(request: Request) {
   }
 
   const supabase = await createClient();
+  const userId = await getAuthenticatedUserId(supabase);
+
+  if (!userId) {
+    return new Response("Authentication required.", { status: 401 });
+  }
+
+  if (!isOwnedAssetPath(userId, path)) {
+    return new Response("Asset not found.", { status: 404 });
+  }
+
   const { data, error } = await supabase.storage
     .from(ASSET_BUCKET)
     .download(path);
