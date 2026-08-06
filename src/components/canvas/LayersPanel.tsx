@@ -27,6 +27,7 @@ import type { CanvasLayer } from "@/types/canvas";
 type LayersPanelProps = {
   activeLayerId: string;
   isolatingLayerId: string | null;
+  isolateBackgroundOpacity: number;
   layers: CanvasLayer[];
   maskEditingLayerId: string | null;
   preferredTop?: number | null;
@@ -36,6 +37,7 @@ type LayersPanelProps = {
   onClose: () => void;
   onDelete: (id: string) => void;
   onIsolateToggle: (id: string) => void;
+  onIsolateBackgroundOpacityChange: (opacity: number) => void;
   onMaskEditToggle: (id: string) => void;
   onMaskEnabledToggle: (id: string) => void;
   onMove: (id: string, direction: "up" | "down") => void;
@@ -47,6 +49,7 @@ const LAYERS_PANEL_VIEW_KEY = "wesketch-layers-panel-view-v1";
 export function LayersPanel({
   activeLayerId,
   isolatingLayerId,
+  isolateBackgroundOpacity,
   layers,
   maskEditingLayerId,
   preferredTop = null,
@@ -56,6 +59,7 @@ export function LayersPanel({
   onClose,
   onDelete,
   onIsolateToggle,
+  onIsolateBackgroundOpacityChange,
   onMaskEditToggle,
   onMaskEnabledToggle,
   onMove,
@@ -432,6 +436,24 @@ export function LayersPanel({
               />
               <output>{Math.round(layer.opacity * 100)}%</output>
             </label>
+            {isolatingLayerId === layer.id ? (
+              <label className={styles.opacityRow}>
+                <span>Background</span>
+                <input
+                  max={100}
+                  min={0}
+                  onChange={(event) =>
+                    onIsolateBackgroundOpacityChange(
+                      Number(event.target.value) / 100,
+                    )
+                  }
+                  onClick={(event) => event.stopPropagation()}
+                  type="range"
+                  value={Math.round(isolateBackgroundOpacity * 100)}
+                />
+                <output>{Math.round(isolateBackgroundOpacity * 100)}%</output>
+              </label>
+            ) : null}
           </article>
         ))}
       </div>

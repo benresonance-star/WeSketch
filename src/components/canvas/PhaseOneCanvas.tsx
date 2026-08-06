@@ -42,7 +42,10 @@ import {
   normalizeCanvasLayer,
   normalizeMaskStroke,
 } from "@/lib/canvas/layer-masks";
-import { isLayerRenderable } from "@/lib/canvas/layer-isolate";
+import {
+  clampIsolateBackgroundOpacity,
+  isLayerRenderable,
+} from "@/lib/canvas/layer-isolate";
 import {
   drawStroke,
   renderViewport,
@@ -454,6 +457,7 @@ export function PhaseOneCanvas({
   const activeMaskToolRef = useRef<"pen" | "eraser" | null>(null);
   const maskEditingLayerIdRef = useRef<string | null>(null);
   const isolatingLayerIdRef = useRef<string | null>(null);
+  const isolateBackgroundOpacityRef = useRef(0);
   const activePenPointerIdRef = useRef<number | null>(null);
   const erasedStrokeIdsRef = useRef(new Set<string>());
   const selectionRef = useRef<CanvasSelection | null>(null);
@@ -501,6 +505,8 @@ export function PhaseOneCanvas({
   const [isolatingLayerId, setIsolatingLayerId] = useState<string | null>(
     null,
   );
+  const [isolateBackgroundOpacity, setIsolateBackgroundOpacityState] =
+    useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [savedUiConfigurations, setSavedUiConfigurations] = useState<
     SavedUiConfiguration[]
@@ -907,6 +913,7 @@ export function PhaseOneCanvas({
       {
         layers: layersRef.current,
         isolatingLayerId: isolatingLayerIdRef.current,
+        isolateBackgroundOpacity: isolateBackgroundOpacityRef.current,
         strokes: strokesRef.current,
         maskStrokes: maskStrokesRef.current,
         maskCache: maskCacheRef.current,
@@ -1326,6 +1333,8 @@ export function PhaseOneCanvas({
       ) {
         isolatingLayerIdRef.current = null;
         setIsolatingLayerId(null);
+        isolateBackgroundOpacityRef.current = 0;
+        setIsolateBackgroundOpacityState(0);
       }
       if (
         !nextLayer.visible &&
@@ -1409,11 +1418,6 @@ export function PhaseOneCanvas({
         return;
       }
 
-      if (isolatingLayerIdRef.current !== null) {
-        isolatingLayerIdRef.current = null;
-        setIsolatingLayerId(null);
-      }
-
       if (!layer.hasMask) {
         const nextLayer = { ...layer, hasMask: true, maskEnabled: true };
         changeLayer(nextLayer);
@@ -1437,13 +1441,10 @@ export function PhaseOneCanvas({
       if (isolatingLayerIdRef.current === layerId) {
         isolatingLayerIdRef.current = null;
         setIsolatingLayerId(null);
+        isolateBackgroundOpacityRef.current = 0;
+        setIsolateBackgroundOpacityState(0);
         scheduleRender();
         return;
-      }
-
-      if (maskEditingLayerIdRef.current !== null) {
-        maskEditingLayerIdRef.current = null;
-        setMaskEditingLayerId(null);
       }
 
       isolatingLayerIdRef.current = layerId;
@@ -1451,6 +1452,16 @@ export function PhaseOneCanvas({
       scheduleRender();
     },
     [activateLayer, scheduleRender],
+  );
+
+  const setIsolateBackgroundOpacity = useCallback(
+    (opacity: number) => {
+      const next = clampIsolateBackgroundOpacity(opacity);
+      isolateBackgroundOpacityRef.current = next;
+      setIsolateBackgroundOpacityState(next);
+      scheduleRender();
+    },
+    [scheduleRender],
   );
 
   const toggleMaskEnabled = useCallback(
@@ -2228,6 +2239,8 @@ export function PhaseOneCanvas({
       if (isolatingLayerIdRef.current === layerId) {
         isolatingLayerIdRef.current = null;
         setIsolatingLayerId(null);
+        isolateBackgroundOpacityRef.current = 0;
+        setIsolateBackgroundOpacityState(0);
       }
       if (
         selectedObjectIdRef.current &&
@@ -4261,6 +4274,7 @@ export function PhaseOneCanvas({
           isAgentPanelOpen={isAgentPanelOpen}
           layers={layers}
           isolatingLayerId={isolatingLayerId}
+          isolateBackgroundOpacity={isolateBackgroundOpacity}
           maskEditingLayerId={maskEditingLayerId}
           onBrushSettingsChange={setBrushSettings}
           onFit={fitToScreen}
@@ -4271,6 +4285,7 @@ export function PhaseOneCanvas({
           onLayerDelete={deleteLayer}
           onLayerMove={moveLayer}
           onIsolateToggle={toggleLayerIsolate}
+          onIsolateBackgroundOpacityChange={setIsolateBackgroundOpacity}
           onMaskEditToggle={toggleMaskEdit}
           onMaskEnabledToggle={toggleMaskEnabled}
           onRedo={redo}
@@ -4357,6 +4372,8 @@ export function PhaseOneCanvas({
             <div className="canvas-status-banner">AI GENERATING</div>
           ) : aiState === "streaming" ? (
             <div className="canvas-status-banner">AI RESPONDING</div>
+          ) : maskEditingLayerId && isolatingLayerId ? (
+            <div className="canvas-status-banner">MASK + ISOLATE MODE</div>
           ) : maskEditingLayerId ? (
             <div className="canvas-status-banner">MASK MODE</div>
           ) : isolatingLayerId ? (

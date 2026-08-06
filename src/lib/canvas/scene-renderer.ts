@@ -1,4 +1,7 @@
-import { isLayerRenderable } from "@/lib/canvas/layer-isolate";
+import {
+  isLayerRenderable,
+  orderedIsolateBackgroundLayers,
+} from "@/lib/canvas/layer-isolate";
 import {
   drawMaskedLayerContent,
   type LayerMaskCache,
@@ -21,6 +24,7 @@ type SurfaceSize = {
 type Scene = {
   layers?: CanvasLayer[];
   isolatingLayerId?: string | null;
+  isolateBackgroundOpacity?: number;
   strokes: Stroke[];
   maskStrokes?: MaskStroke[];
   objects: CanvasImageObject[];
@@ -108,44 +112,86 @@ function drawLayerContent(
   }
 }
 
+function drawSingleLayer(
+  context: CanvasRenderingContext2D,
+  scene: Scene,
+  layer: CanvasLayer,
+  worldWidth: number,
+  worldHeight: number,
+): void {
+  const maskStrokes = scene.maskStrokes ?? [];
+  const usesMask =
+    layer.hasMask && layer.maskEnabled && scene.maskCache !== undefined;
+
+  if (usesMask && scene.maskCache) {
+    const maskCanvas = scene.maskCache.getCanvas(
+      layer.id,
+      worldWidth,
+      worldHeight,
+      maskStrokes,
+    );
+    drawMaskedLayerContent(
+      context,
+      worldWidth,
+      worldHeight,
+      layer.opacity,
+      maskCanvas,
+      (layerContext) => drawLayerContent(layerContext, scene, layer),
+    );
+    return;
+  }
+
+  context.save();
+  context.globalAlpha *= layer.opacity;
+  drawLayerContent(context, scene, layer);
+  context.restore();
+}
+
 function drawContent(
   context: CanvasRenderingContext2D,
   scene: Scene,
 ): void {
   const worldWidth = scene.worldWidth ?? 2048;
   const worldHeight = scene.worldHeight ?? 1536;
-  const maskStrokes = scene.maskStrokes ?? [];
 
   if (scene.layers && scene.layers.length > 0) {
-    for (const layer of orderedVisibleLayers(
-      scene.layers,
-      scene.isolatingLayerId ?? null,
-    )) {
-      const usesMask =
-        layer.hasMask && layer.maskEnabled && scene.maskCache !== undefined;
+    const isolatingLayerId = scene.isolatingLayerId ?? null;
 
-      if (usesMask && scene.maskCache) {
-        const maskCanvas = scene.maskCache.getCanvas(
-          layer.id,
-          worldWidth,
-          worldHeight,
-          maskStrokes,
-        );
-        drawMaskedLayerContent(
-          context,
-          worldWidth,
-          worldHeight,
-          layer.opacity,
-          maskCanvas,
-          (layerContext) => drawLayerContent(layerContext, scene, layer),
-        );
-        continue;
+    if (isolatingLayerId !== null) {
+      const isolatedLayer = scene.layers.find(
+        (layer) => layer.id === isolatingLayerId,
+      );
+      const isolateBackgroundOpacity = Math.min(
+        1,
+        Math.max(0, scene.isolateBackgroundOpacity ?? 0),
+      );
+
+      if (isolateBackgroundOpacity > 0) {
+        for (const layer of orderedIsolateBackgroundLayers(
+          scene.layers,
+          isolatingLayerId,
+        )) {
+          drawSingleLayer(context, scene, layer, worldWidth, worldHeight);
+        }
+
+        context.save();
+        context.globalAlpha = isolateBackgroundOpacity;
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, worldWidth, worldHeight);
+        context.restore();
       }
 
-      context.save();
-      context.globalAlpha *= layer.opacity;
-      drawLayerContent(context, scene, layer);
-      context.restore();
+      if (
+        isolatedLayer &&
+        isLayerRenderable(isolatedLayer, isolatingLayerId)
+      ) {
+        drawSingleLayer(context, scene, isolatedLayer, worldWidth, worldHeight);
+      }
+      return;
+    }
+
+    for (const layer of orderedVisibleLayers(scene.layers, null)) {
+      drawSingleLayer(context, scene, layer, worldWidth, worldHeight);
     }
     return;
   }

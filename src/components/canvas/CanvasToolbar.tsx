@@ -30,6 +30,7 @@ type CanvasToolbarProps = {
   layers: CanvasLayer[];
   activeLayerId: string;
   isolatingLayerId: string | null;
+  isolateBackgroundOpacity: number;
   maskEditingLayerId: string | null;
   onBrushSettingsChange: (settings: BrushSettings) => void;
   onToolChange: (tool: Tool) => void;
@@ -43,6 +44,7 @@ type CanvasToolbarProps = {
   onLayerDelete: (id: string) => void;
   onLayerMove: (id: string, direction: "up" | "down") => void;
   onIsolateToggle: (id: string) => void;
+  onIsolateBackgroundOpacityChange: (opacity: number) => void;
   onMaskEditToggle: (id: string) => void;
   onMaskEnabledToggle: (id: string) => void;
   onToggleAgentPanel: () => void;
@@ -75,6 +77,7 @@ export function CanvasToolbar({
   brushSettings,
   layers,
   isolatingLayerId,
+  isolateBackgroundOpacity,
   maskEditingLayerId,
   activeLayerId,
   onBrushSettingsChange,
@@ -89,6 +92,7 @@ export function CanvasToolbar({
   onLayerDelete,
   onLayerMove,
   onIsolateToggle,
+  onIsolateBackgroundOpacityChange,
   onMaskEditToggle,
   onMaskEnabledToggle,
   onToggleAgentPanel,
@@ -389,6 +393,7 @@ export function CanvasToolbar({
         <LayersPanel
           activeLayerId={activeLayerId}
           isolatingLayerId={isolatingLayerId}
+          isolateBackgroundOpacity={isolateBackgroundOpacity}
           layers={layers}
           maskEditingLayerId={maskEditingLayerId}
           preferredTop={layersPreferredTop}
@@ -398,6 +403,7 @@ export function CanvasToolbar({
           onClose={() => setIsLayersOpen(false)}
           onDelete={onLayerDelete}
           onIsolateToggle={onIsolateToggle}
+          onIsolateBackgroundOpacityChange={onIsolateBackgroundOpacityChange}
           onMaskEditToggle={onMaskEditToggle}
           onMaskEnabledToggle={onMaskEnabledToggle}
           onMove={onLayerMove}
