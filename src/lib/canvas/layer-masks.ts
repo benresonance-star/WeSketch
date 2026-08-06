@@ -4,6 +4,10 @@ import type { CanvasLayer, MaskStroke, Stroke } from "@/types/canvas";
 const MASK_FULLY_VISIBLE = "#ffffff";
 const MASK_FULLY_HIDDEN = "#000000";
 
+function clamp255(value: number): number {
+  return Math.min(255, Math.max(0, Math.round(value)));
+}
+
 function parseHexColor(color: string): { b: number; g: number; r: number } | null {
   const normalized = color.trim();
   const shortMatch = /^#([\da-f]{3})$/i.exec(normalized);
@@ -29,24 +33,37 @@ function parseHexColor(color: string): { b: number; g: number; r: number } | nul
   return null;
 }
 
-/** Map a brush colour to mask greyscale (0 hides, 255 reveals). */
+function parseRgbColor(color: string): { b: number; g: number; r: number } | null {
+  const match = /^rgba?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)/i.exec(
+    color.trim(),
+  );
+  if (!match) {
+    return null;
+  }
+
+  return {
+    r: clamp255(Number(match[1])),
+    g: clamp255(Number(match[2])),
+    b: clamp255(Number(match[3])),
+  };
+}
+
+function parseColorToRgb(color: string): { b: number; g: number; r: number } | null {
+  return parseHexColor(color) ?? parseRgbColor(color);
+}
+
+/** Map a brush colour to mask density (0 hides, 255 reveals). */
 export function colorToMaskGray(color: string): number {
-  const rgb = parseHexColor(color);
+  const rgb = parseColorToRgb(color);
   if (!rgb) {
     return 255;
   }
 
-  return Math.min(
-    255,
-    Math.max(
-      0,
-      Math.round(rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114),
-    ),
-  );
+  return clamp255(rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114);
 }
 
 export function maskGrayToStrokeColor(gray: number): string {
-  const channel = Math.min(255, Math.max(0, Math.round(gray)));
+  const channel = clamp255(gray);
   return `rgb(${channel}, ${channel}, ${channel})`;
 }
 
@@ -56,15 +73,24 @@ export function maskStrokePaintColor(
   return maskGrayToStrokeColor(colorToMaskGray(maskStroke.color));
 }
 
-export function maskToolPaintColor(
+export function maskToolStorageColor(
   tool: "pen" | "eraser",
   brushColor: string,
 ): string {
   if (tool === "eraser") {
-    return maskGrayToStrokeColor(255);
+    return MASK_FULLY_HIDDEN;
   }
 
-  return maskGrayToStrokeColor(colorToMaskGray(brushColor));
+  return brushColor;
+}
+
+export function maskToolPaintColor(
+  tool: "pen" | "eraser",
+  brushColor: string,
+): string {
+  return maskStrokePaintColor({
+    color: maskToolStorageColor(tool, brushColor),
+  });
 }
 
 export function normalizeMaskStroke(
@@ -93,27 +119,7 @@ function maskStrokeAsStroke(maskStroke: MaskStroke): Stroke {
   };
 }
 
-function applyMaskAlphaFromLuminance(canvas: HTMLCanvasElement): void {
-  const context = canvas.getContext("2d");
-
-  if (!context) {
-    throw new Error("2D canvas rendering is unavailable.");
-  }
-
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  const { data } = imageData;
-
-  for (let index = 0; index < data.length; index += 4) {
-    const luminance = data[index];
-    data[index] = 255;
-    data[index + 1] = 255;
-    data[index + 2] = 255;
-    data[index + 3] = luminance;
-  }
-
-  context.putImageData(imageData, 0, 0);
-}
-
+/** Build a greyscale opacity map (255 = visible, 0 = hidden). */
 export function buildLayerMaskCanvas(
   width: number,
   height: number,
@@ -129,7 +135,7 @@ export function buildLayerMaskCanvas(
     throw new Error("2D canvas rendering is unavailable.");
   }
 
-  context.fillStyle = "rgba(255, 255, 255, 1)";
+  context.fillStyle = MASK_FULLY_VISIBLE;
   context.fillRect(0, 0, width, height);
 
   for (const maskStroke of maskStrokes) {
@@ -138,11 +144,36 @@ export function buildLayerMaskCanvas(
     }
 
     context.globalCompositeOperation = "source-over";
+    context.globalAlpha = 1;
     drawStroke(context, maskStrokeAsStroke(normalizeMaskStroke(maskStroke)));
   }
 
-  applyMaskAlphaFromLuminance(canvas);
   return canvas;
+}
+
+function applyGrayscaleMaskOpacity(
+  contentContext: CanvasRenderingContext2D,
+  maskCanvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+): void {
+  const maskContext = maskCanvas.getContext("2d");
+
+  if (!maskContext) {
+    throw new Error("2D canvas rendering is unavailable.");
+  }
+
+  const contentImage = contentContext.getImageData(0, 0, width, height);
+  const maskImage = maskContext.getImageData(0, 0, width, height);
+  const content = contentImage.data;
+  const mask = maskImage.data;
+
+  for (let index = 0; index < content.length; index += 4) {
+    const maskDensity = mask[index];
+    content[index + 3] = Math.round((content[index + 3] * maskDensity) / 255);
+  }
+
+  contentContext.putImageData(contentImage, 0, 0);
 }
 
 export class LayerMaskCache {
@@ -204,9 +235,15 @@ export function drawMaskedLayerContent(
   }
 
   drawLayerContent(contentContext);
-  contentContext.globalCompositeOperation = "destination-in";
-  contentContext.drawImage(maskCanvas, 0, 0);
-  contentContext.globalCompositeOperation = "source-over";
+
+  if (maskCanvas instanceof HTMLCanvasElement) {
+    applyGrayscaleMaskOpacity(
+      contentContext,
+      maskCanvas,
+      worldWidth,
+      worldHeight,
+    );
+  }
 
   context.save();
   context.globalAlpha *= layerOpacity;

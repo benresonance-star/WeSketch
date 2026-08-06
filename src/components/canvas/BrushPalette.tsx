@@ -18,9 +18,16 @@ const SWATCHES = [
   "#b84f8d",
 ];
 
+const MASK_GREYSCALE_SWATCHES = Array.from({ length: 10 }, (_, index) => {
+  const channel = Math.round((index / 9) * 255);
+  const hex = channel.toString(16).padStart(2, "0");
+  return `#${hex}${hex}${hex}`;
+});
+
 type BrushPaletteProps = {
   settings: BrushSettings;
   layout: BrushPaletteLayout;
+  maskMode?: boolean;
   onChange: (settings: BrushSettings) => void;
   onLayoutChange: (layout: BrushPaletteLayout) => void;
   onClose: () => void;
@@ -29,10 +36,14 @@ type BrushPaletteProps = {
 export function BrushPalette({
   settings,
   layout,
+  maskMode = false,
   onChange,
   onLayoutChange,
   onClose,
 }: BrushPaletteProps) {
+  const swatches = maskMode ? MASK_GREYSCALE_SWATCHES : SWATCHES;
+  const normalizedColor = settings.color.toLowerCase();
+
   return (
     <section
       aria-label="Pen palette"
@@ -105,12 +116,14 @@ export function BrushPalette({
 
       <div className="brush-control brush-colour-control">
         <div className="brush-control-label">
-          <label htmlFor="brush-color">Colour</label>
+          <label htmlFor="brush-color">{maskMode ? "Mask" : "Colour"}</label>
           <span>{settings.color.toUpperCase()}</span>
         </div>
         <div className="brush-colour-row">
           <input
-            aria-label="Choose any pen colour"
+            aria-label={
+              maskMode ? "Choose any mask greyscale" : "Choose any pen colour"
+            }
             id="brush-color"
             onChange={(event) =>
               onChange({ ...settings, color: event.target.value })
@@ -118,11 +131,18 @@ export function BrushPalette({
             type="color"
             value={settings.color}
           />
-          <div className="brush-swatches" aria-label="Quick colours">
-            {SWATCHES.map((color) => (
+          <div
+            className="brush-swatches"
+            aria-label={maskMode ? "Mask greyscale steps" : "Quick colours"}
+          >
+            {swatches.map((color) => (
               <button
-                aria-label={`Use colour ${color}`}
-                aria-pressed={settings.color.toLowerCase() === color}
+                aria-label={
+                  maskMode
+                    ? `Use mask density ${color}`
+                    : `Use colour ${color}`
+                }
+                aria-pressed={normalizedColor === color}
                 className="brush-swatch"
                 key={color}
                 onClick={() => onChange({ ...settings, color })}

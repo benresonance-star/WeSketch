@@ -221,6 +221,7 @@ export function CanvasToolbar({
       {isPaletteOpen ? (
         <BrushPalette
           layout={paletteLayout}
+          maskMode={maskEditingLayerId !== null}
           onChange={onBrushSettingsChange}
           onClose={() => setIsPaletteOpen(false)}
           onLayoutChange={changePaletteLayout}

@@ -37,6 +37,7 @@ import {
 import {
   LayerMaskCache,
   maskToolPaintColor,
+  maskToolStorageColor,
   normalizeCanvasLayer,
   normalizeMaskStroke,
 } from "@/lib/canvas/layer-masks";
@@ -2236,7 +2237,7 @@ export function PhaseOneCanvas({
         points,
         width: brushSettingsRef.current.size,
         pressureEnabled: brushSettingsRef.current.pressureEnabled,
-        color: maskToolPaintColor(
+        color: maskToolStorageColor(
           maskTool,
           brushSettingsRef.current.color,
         ),
