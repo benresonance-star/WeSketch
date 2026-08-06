@@ -343,41 +343,51 @@ export function ContextPanel({
         <p className="error-note">{stats.persistenceError}</p>
       ) : null}
 
-      <div className="diagnostic-actions">
-        <button
-          disabled={!hasSelection || snapshotState === "preparing"}
-          onClick={onPrepareContext}
-          type="button"
-        >
-          {snapshotState === "preparing"
-            ? "Preparing context…"
-            : "Prepare AI context"}
-        </button>
-      </div>
+      <section
+        aria-label="Prepare AI context"
+        className={styles.contextPrepareZone}
+      >
+        <div className="diagnostic-actions">
+          <button
+            disabled={!hasSelection || snapshotState === "preparing"}
+            onClick={onPrepareContext}
+            type="button"
+          >
+            {snapshotState === "preparing"
+              ? "Preparing context…"
+              : "Prepare AI context"}
+          </button>
+        </div>
 
-      {snapshotState === "error" ? (
-        <p className="error-note">
-          Could not render or privately save the context snapshots.
-        </p>
-      ) : null}
+        {snapshotState === "error" ? (
+          <p className="error-note">
+            Could not render or privately save the context snapshots.
+          </p>
+        ) : null}
 
-      {snapshotState === "ready" && snapshots?.contextSnapshotId ? (
-        <p className="context-ready-note">Private AI context saved.</p>
-      ) : null}
+        {snapshotState === "ready" && snapshots?.contextSnapshotId ? (
+          <p className="context-ready-note">Private AI context saved.</p>
+        ) : null}
 
-      <div className="panel-scroll-content" ref={panelRef}>
         {snapshots ? (
           <div className="snapshot-list">
             <SnapshotImage label="Selection" src={snapshots.selectionUrl} />
-            <SnapshotImage
-              label="Neighbourhood"
-              src={snapshots.neighbourhoodUrl}
-            />
-            <SnapshotImage label="Whole canvas" src={snapshots.canvasUrl} />
+            {includeNeighbourhood ? (
+              <SnapshotImage
+                label="Neighbourhood"
+                src={snapshots.neighbourhoodUrl}
+              />
+            ) : null}
+            {includeCanvas ? (
+              <SnapshotImage label="Whole canvas" src={snapshots.canvasUrl} />
+            ) : null}
           </div>
         ) : null}
+      </section>
 
+      <div className="panel-scroll-content" ref={panelRef}>
         <section className="conversation-section" aria-label="AI conversation">
+          <h3 className={styles.chatHistoryTitle}>Chat history</h3>
           <div className="conversation-messages" aria-live="polite">
             {messages.length > 0 ? (
               messages.map((message) => (

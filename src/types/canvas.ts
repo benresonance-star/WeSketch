@@ -20,6 +20,20 @@ export type CanvasLayer = {
   order: number;
   opacity: number;
   visible: boolean;
+  hasMask: boolean;
+  maskEnabled: boolean;
+  createdAt: number;
+};
+
+export type MaskStrokeMode = "reveal" | "conceal";
+
+export type MaskStroke = {
+  id: string;
+  layerId: string;
+  points: Point[];
+  width: number;
+  pressureEnabled?: boolean;
+  mode: MaskStrokeMode;
   createdAt: number;
 };
 

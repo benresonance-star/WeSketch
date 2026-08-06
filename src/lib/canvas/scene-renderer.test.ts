@@ -49,6 +49,8 @@ describe("orderedVisibleLayers", () => {
     order,
     opacity,
     visible,
+    hasMask: false,
+    maskEnabled: true,
     createdAt: 0,
   });
 

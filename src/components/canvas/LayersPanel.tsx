@@ -12,8 +12,11 @@ import {
   Eye,
   EyeOff,
   GripVertical,
+  Link2,
   Plus,
   SlidersHorizontal,
+  Square,
+  Unlink,
   X,
 } from "lucide-react";
 
@@ -23,10 +26,13 @@ import type { CanvasLayer } from "@/types/canvas";
 type LayersPanelProps = {
   activeLayerId: string;
   layers: CanvasLayer[];
+  maskEditingLayerId: string | null;
   onActivate: (id: string) => void;
   onAdd: () => void;
   onChange: (layer: CanvasLayer) => void;
   onClose: () => void;
+  onMaskEditToggle: (id: string) => void;
+  onMaskEnabledToggle: (id: string) => void;
   onMove: (id: string, direction: "up" | "down") => void;
 };
 
@@ -35,10 +41,13 @@ const INITIAL_POSITION = { x: 84, y: 88 };
 export function LayersPanel({
   activeLayerId,
   layers,
+  maskEditingLayerId,
   onActivate,
   onAdd,
   onChange,
   onClose,
+  onMaskEditToggle,
+  onMaskEnabledToggle,
   onMove,
 }: LayersPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
@@ -203,6 +212,56 @@ export function LayersPanel({
                   <EyeOff aria-hidden="true" />
                 )}
               </button>
+              <div className={styles.maskActions}>
+                <button
+                  aria-label={
+                    maskEditingLayerId === layer.id
+                      ? "Exit layer mask edit mode"
+                      : "Edit layer mask"
+                  }
+                  aria-pressed={maskEditingLayerId === layer.id}
+                  className={
+                    maskEditingLayerId === layer.id
+                      ? styles.maskEditActive
+                      : undefined
+                  }
+                  disabled={!layer.visible}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onMaskEditToggle(layer.id);
+                  }}
+                  title={
+                    layer.visible
+                      ? undefined
+                      : "Show the layer before editing its mask"
+                  }
+                  type="button"
+                >
+                  <Square aria-hidden="true" />
+                </button>
+                {layer.hasMask ? (
+                  <button
+                    aria-label={
+                      layer.maskEnabled
+                        ? "Disable layer mask"
+                        : "Enable layer mask"
+                    }
+                    aria-pressed={layer.maskEnabled}
+                    className={layer.maskEnabled ? undefined : styles.maskEnableOff}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMaskEnabledToggle(layer.id);
+                    }}
+                    type="button"
+                  >
+                    {layer.maskEnabled ? (
+                      <Link2 aria-hidden="true" />
+                    ) : (
+                      <Unlink aria-hidden="true" />
+                    )}
+                  </button>
+                ) : null}
+              </div>
               <input
                 aria-label="Layer name"
                 defaultValue={layer.name}

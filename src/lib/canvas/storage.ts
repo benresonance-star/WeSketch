@@ -1,14 +1,16 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
-import type { CanvasImageObject, CanvasLayer, Stroke } from "@/types/canvas";
+import type { CanvasImageObject, CanvasLayer, MaskStroke, Stroke } from "@/types/canvas";
+import { normalizeCanvasLayer } from "@/lib/canvas/layer-masks";
 
 type StoredStroke = Stroke & { projectId?: string };
 type StoredObject = CanvasImageObject & { projectId?: string };
 type StoredLayer = CanvasLayer & { projectId: string };
+type StoredMaskStroke = MaskStroke & { projectId?: string };
 export type SceneDeletion = {
   key: string;
   projectId: string;
-  kind: "stroke" | "object";
+  kind: "stroke" | "object" | "mask-stroke";
   entityId: string;
 };
 
@@ -28,6 +30,11 @@ interface WeSketchPrototypeDatabase extends DBSchema {
     value: StoredLayer;
     indexes: { projectId: string };
   };
+  maskStrokes: {
+    key: string;
+    value: StoredMaskStroke;
+    indexes: { projectId: string };
+  };
   deletions: {
     key: string;
     value: SceneDeletion;
@@ -36,7 +43,7 @@ interface WeSketchPrototypeDatabase extends DBSchema {
 }
 
 const DATABASE_NAME = "wesketch-phase-zero";
-const DATABASE_VERSION = 5;
+const DATABASE_VERSION = 6;
 
 let databasePromise: Promise<IDBPDatabase<WeSketchPrototypeDatabase>> | null = null;
 
@@ -74,6 +81,12 @@ function getDatabase(): Promise<IDBPDatabase<WeSketchPrototypeDatabase>> {
               keyPath: "id",
             });
             layers.createIndex("projectId", "projectId");
+          }
+          if (!database.objectStoreNames.contains("maskStrokes")) {
+            const maskStrokes = database.createObjectStore("maskStrokes", {
+              keyPath: "id",
+            });
+            maskStrokes.createIndex("projectId", "projectId");
           }
         },
       },
@@ -213,7 +226,12 @@ export async function loadCanvasLayers(
   projectId: string,
 ): Promise<CanvasLayer[]> {
   const database = await getDatabase();
-  return database.getAllFromIndex("layers", "projectId", projectId);
+  const layers = await database.getAllFromIndex(
+    "layers",
+    "projectId",
+    projectId,
+  );
+  return layers.map((layer) => normalizeCanvasLayer(layer));
 }
 
 export async function saveCanvasLayer(
@@ -221,7 +239,58 @@ export async function saveCanvasLayer(
   layer: CanvasLayer,
 ): Promise<void> {
   const database = await getDatabase();
-  await database.put("layers", { ...layer, projectId });
+  await database.put("layers", {
+    ...normalizeCanvasLayer(layer),
+    projectId,
+  });
+}
+
+export async function loadMaskStrokes(projectId: string): Promise<MaskStroke[]> {
+  const database = await getDatabase();
+  const scoped = await database.getAllFromIndex(
+    "maskStrokes",
+    "projectId",
+    projectId,
+  );
+
+  if (scoped.length > 0) {
+    return scoped;
+  }
+
+  const legacy = (await database.getAll("maskStrokes")).filter(
+    (maskStroke) => !maskStroke.projectId,
+  );
+  await Promise.all(
+    legacy.map((maskStroke) =>
+      database.put("maskStrokes", { ...maskStroke, projectId }),
+    ),
+  );
+  return legacy;
+}
+
+export async function saveMaskStroke(
+  projectId: string,
+  maskStroke: MaskStroke,
+): Promise<void> {
+  const database = await getDatabase();
+  await database.put("maskStrokes", { ...maskStroke, projectId });
+}
+
+export async function deleteMaskStroke(maskStrokeId: string): Promise<void> {
+  const database = await getDatabase();
+  await database.delete("maskStrokes", maskStrokeId);
+}
+
+export async function clearMaskStrokes(projectId: string): Promise<void> {
+  const database = await getDatabase();
+  const keys = await database.getAllKeysFromIndex(
+    "maskStrokes",
+    "projectId",
+    projectId,
+  );
+  const transaction = database.transaction("maskStrokes", "readwrite");
+  await Promise.all(keys.map((key) => transaction.store.delete(key)));
+  await transaction.done;
 }
 
 export async function loadSceneDeletions(

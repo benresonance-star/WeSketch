@@ -28,6 +28,7 @@ type CanvasToolbarProps = {
   brushSettings: BrushSettings;
   layers: CanvasLayer[];
   activeLayerId: string;
+  maskEditingLayerId: string | null;
   onBrushSettingsChange: (settings: BrushSettings) => void;
   onToolChange: (tool: Tool) => void;
   onImport: () => void;
@@ -38,6 +39,8 @@ type CanvasToolbarProps = {
   onLayerAdd: () => void;
   onLayerChange: (layer: CanvasLayer) => void;
   onLayerMove: (id: string, direction: "up" | "down") => void;
+  onMaskEditToggle: (id: string) => void;
+  onMaskEnabledToggle: (id: string) => void;
   onToggleAgentPanel: () => void;
 };
 
@@ -58,6 +61,7 @@ export function CanvasToolbar({
   tool,
   brushSettings,
   layers,
+  maskEditingLayerId,
   activeLayerId,
   onBrushSettingsChange,
   onToolChange,
@@ -69,6 +73,8 @@ export function CanvasToolbar({
   onLayerAdd,
   onLayerChange,
   onLayerMove,
+  onMaskEditToggle,
+  onMaskEnabledToggle,
   onToggleAgentPanel,
 }: CanvasToolbarProps) {
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -225,10 +231,13 @@ export function CanvasToolbar({
         <LayersPanel
           activeLayerId={activeLayerId}
           layers={layers}
+          maskEditingLayerId={maskEditingLayerId}
           onActivate={onLayerActivate}
           onAdd={onLayerAdd}
           onChange={onLayerChange}
           onClose={() => setIsLayersOpen(false)}
+          onMaskEditToggle={onMaskEditToggle}
+          onMaskEnabledToggle={onMaskEnabledToggle}
           onMove={onLayerMove}
         />
       ) : null}

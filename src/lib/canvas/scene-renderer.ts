@@ -1,8 +1,14 @@
-import { midpoint, type Viewport } from "@/lib/canvas/geometry";
+import {
+  drawMaskedLayerContent,
+  type LayerMaskCache,
+} from "@/lib/canvas/layer-masks";
+import { type Viewport } from "@/lib/canvas/geometry";
+import { drawStroke } from "@/lib/canvas/stroke-drawing";
 import type {
   Bounds,
   CanvasImageObject,
   CanvasLayer,
+  MaskStroke,
   Stroke,
 } from "@/types/canvas";
 
@@ -14,8 +20,12 @@ type SurfaceSize = {
 type Scene = {
   layers?: CanvasLayer[];
   strokes: Stroke[];
+  maskStrokes?: MaskStroke[];
   objects: CanvasImageObject[];
   imageSources: Map<string, CanvasImageSource>;
+  maskCache?: LayerMaskCache;
+  worldWidth?: number;
+  worldHeight?: number;
 };
 
 type WorldSize = {
@@ -23,87 +33,12 @@ type WorldSize = {
   height: number;
 };
 
+export { drawStroke, strokeWidthAtPressure } from "@/lib/canvas/stroke-drawing";
+
 export function orderedVisibleLayers(layers: CanvasLayer[]): CanvasLayer[] {
   return [...layers]
     .filter((layer) => layer.visible && layer.opacity > 0)
     .sort((first, second) => first.order - second.order);
-}
-
-export function strokeWidthAtPressure(
-  baseWidth: number,
-  pressure: number,
-  pressureEnabled: boolean,
-): number {
-  if (!pressureEnabled) {
-    return baseWidth;
-  }
-
-  const normalizedPressure = Math.min(1, Math.max(0, pressure));
-  return baseWidth * (0.2 + normalizedPressure * 0.8);
-}
-
-export function drawStroke(
-  context: CanvasRenderingContext2D,
-  stroke: Stroke,
-): void {
-  const { points } = stroke;
-
-  if (points.length === 0) {
-    return;
-  }
-
-  const pressureEnabled = stroke.pressureEnabled ?? true;
-  context.strokeStyle = stroke.color;
-  context.fillStyle = stroke.color;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-
-  if (points.length === 1) {
-    const pressureWidth = strokeWidthAtPressure(
-      stroke.width,
-      points[0].pressure,
-      pressureEnabled,
-    );
-    context.beginPath();
-    context.arc(points[0].x, points[0].y, pressureWidth / 2, 0, Math.PI * 2);
-    context.fill();
-    return;
-  }
-
-  if (pressureEnabled) {
-    for (let index = 1; index < points.length; index += 1) {
-      const previous = points[index - 1];
-      const current = points[index];
-      context.lineWidth = strokeWidthAtPressure(
-        stroke.width,
-        (previous.pressure + current.pressure) / 2,
-        true,
-      );
-      context.beginPath();
-      context.moveTo(previous.x, previous.y);
-      context.lineTo(current.x, current.y);
-      context.stroke();
-    }
-    return;
-  }
-
-  context.lineWidth = stroke.width;
-  context.beginPath();
-  context.moveTo(points[0].x, points[0].y);
-
-  for (let index = 1; index < points.length - 1; index += 1) {
-    const nextMidpoint = midpoint(points[index], points[index + 1]);
-    context.quadraticCurveTo(
-      points[index].x,
-      points[index].y,
-      nextMidpoint.x,
-      nextMidpoint.y,
-    );
-  }
-
-  const lastPoint = points[points.length - 1];
-  context.lineTo(lastPoint.x, lastPoint.y);
-  context.stroke();
 }
 
 export function objectDrawOpacity(opacity: number | undefined): number {
@@ -146,29 +81,62 @@ function drawObject(
   context.restore();
 }
 
+function drawLayerContent(
+  context: CanvasRenderingContext2D,
+  scene: Scene,
+  layer: CanvasLayer,
+): void {
+  const layerObjects = scene.objects
+    .filter((canvasObject) => canvasObject.layerId === layer.id)
+    .sort((first, second) => first.zIndex - second.zIndex);
+  for (const canvasObject of layerObjects) {
+    drawObject(
+      context,
+      canvasObject,
+      scene.imageSources.get(canvasObject.id),
+    );
+  }
+  for (const stroke of scene.strokes) {
+    if (stroke.layerId === layer.id) {
+      drawStroke(context, stroke);
+    }
+  }
+}
+
 function drawContent(
   context: CanvasRenderingContext2D,
   scene: Scene,
 ): void {
+  const worldWidth = scene.worldWidth ?? 2048;
+  const worldHeight = scene.worldHeight ?? 1536;
+  const maskStrokes = scene.maskStrokes ?? [];
+
   if (scene.layers && scene.layers.length > 0) {
     for (const layer of orderedVisibleLayers(scene.layers)) {
+      const usesMask =
+        layer.hasMask && layer.maskEnabled && scene.maskCache !== undefined;
+
+      if (usesMask && scene.maskCache) {
+        const maskCanvas = scene.maskCache.getCanvas(
+          layer.id,
+          worldWidth,
+          worldHeight,
+          maskStrokes,
+        );
+        drawMaskedLayerContent(
+          context,
+          worldWidth,
+          worldHeight,
+          layer.opacity,
+          maskCanvas,
+          (layerContext) => drawLayerContent(layerContext, scene, layer),
+        );
+        continue;
+      }
+
       context.save();
       context.globalAlpha *= layer.opacity;
-      const layerObjects = scene.objects
-        .filter((canvasObject) => canvasObject.layerId === layer.id)
-        .sort((first, second) => first.zIndex - second.zIndex);
-      for (const canvasObject of layerObjects) {
-        drawObject(
-          context,
-          canvasObject,
-          scene.imageSources.get(canvasObject.id),
-        );
-      }
-      for (const stroke of scene.strokes) {
-        if (stroke.layerId === layer.id) {
-          drawStroke(context, stroke);
-        }
-      }
+      drawLayerContent(context, scene, layer);
       context.restore();
     }
     return;
@@ -217,7 +185,11 @@ export function renderViewport(
   context.beginPath();
   context.rect(0, 0, worldSize.width, worldSize.height);
   context.clip();
-  drawContent(context, scene);
+  drawContent(context, {
+    ...scene,
+    worldWidth: worldSize.width,
+    worldHeight: worldSize.height,
+  });
   context.restore();
 }
 
@@ -251,6 +223,10 @@ export function renderRegion(
   context.beginPath();
   context.rect(0, 0, worldSize.width, worldSize.height);
   context.clip();
-  drawContent(context, scene);
+  drawContent(context, {
+    ...scene,
+    worldWidth: worldSize.width,
+    worldHeight: worldSize.height,
+  });
   context.restore();
 }

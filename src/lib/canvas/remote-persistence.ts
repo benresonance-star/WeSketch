@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { CanvasImageObject, CanvasLayer, Stroke } from "@/types/canvas";
+import type { CanvasImageObject, CanvasLayer, MaskStroke, Stroke } from "@/types/canvas";
+import { normalizeCanvasLayer } from "@/lib/canvas/layer-masks";
 
 const ASSET_BUCKET = "project-assets";
 
@@ -13,6 +14,7 @@ export type RemoteSceneContext = {
 export type RemoteScene = {
   layers: CanvasLayer[];
   strokes: Stroke[];
+  maskStrokes: MaskStroke[];
   objects: CanvasImageObject[];
   objectLoadErrorCount: number;
 };
@@ -50,12 +52,26 @@ function normalizeObjectOpacity(opacity: number | undefined): number {
   return Math.min(1, Math.max(0, opacity));
 }
 
+type RemoteMaskStrokeRow = {
+  id: string;
+  layer_id: string;
+  points: MaskStroke["points"];
+  style: {
+    mode?: MaskStroke["mode"];
+    width?: number;
+    pressureEnabled?: boolean;
+  };
+  created_at: string;
+};
+
 type RemoteLayerRow = {
   id: string;
   name: string;
   sort_order: number;
   opacity: number;
   is_visible: boolean;
+  has_mask: boolean;
+  mask_enabled: boolean;
   created_at: string;
 };
 
@@ -97,14 +113,23 @@ export async function loadRemoteScene(
   supabase: SupabaseClient,
   context: RemoteSceneContext,
 ): Promise<RemoteScene> {
-  const [layerResult, strokeResult, objectResult] = await Promise.all([
+  const [layerResult, strokeResult, maskStrokeResult, objectResult] =
+    await Promise.all([
     supabase
       .from("canvas_layers")
-      .select("id, name, sort_order, opacity, is_visible, created_at")
+      .select(
+        "id, name, sort_order, opacity, is_visible, has_mask, mask_enabled, created_at",
+      )
       .eq("canvas_id", context.canvasId)
       .order("sort_order"),
     supabase
       .from("strokes")
+      .select("id, layer_id, points, style, created_at")
+      .eq("canvas_id", context.canvasId)
+      .is("deleted_at", null)
+      .order("z_index"),
+    supabase
+      .from("mask_strokes")
       .select("id, layer_id, points, style, created_at")
       .eq("canvas_id", context.canvasId)
       .is("deleted_at", null)
@@ -121,6 +146,7 @@ export async function loadRemoteScene(
 
   throwIfError(layerResult.error);
   throwIfError(strokeResult.error);
+  throwIfError(maskStrokeResult.error);
   throwIfError(objectResult.error);
 
   const strokes = (strokeResult.data as RemoteStrokeRow[] | null)?.map(
@@ -134,6 +160,17 @@ export async function loadRemoteScene(
       createdAt: new Date(row.created_at).getTime(),
     }),
   );
+  const maskStrokes: MaskStroke[] = (
+    maskStrokeResult.data as RemoteMaskStrokeRow[] | null
+  )?.map((row) => ({
+    id: row.id,
+    layerId: row.layer_id,
+    points: row.points,
+    width: row.style.width ?? 4,
+    pressureEnabled: row.style.pressureEnabled ?? true,
+    mode: row.style.mode === "conceal" ? ("conceal" as const) : ("reveal" as const),
+    createdAt: new Date(row.created_at).getTime(),
+  })) ?? [];
   const objectResults = await Promise.allSettled(
     ((objectResult.data as RemoteObjectRow[] | null) ?? []).map(async (row) => {
       const storagePath = row.data.storagePath;
@@ -169,19 +206,23 @@ export async function loadRemoteScene(
   const objectLoadErrorCount = objectResults.length - objects.length;
 
   const layers = ((layerResult.data as RemoteLayerRow[] | null) ?? []).map(
-    (row) => ({
-      id: row.id,
-      name: row.name,
-      order: row.sort_order,
-      opacity: Number(row.opacity),
-      visible: row.is_visible,
-      createdAt: new Date(row.created_at).getTime(),
-    }),
+    (row) =>
+      normalizeCanvasLayer({
+        id: row.id,
+        name: row.name,
+        order: row.sort_order,
+        opacity: Number(row.opacity),
+        visible: row.is_visible,
+        hasMask: row.has_mask ?? false,
+        maskEnabled: row.mask_enabled ?? true,
+        createdAt: new Date(row.created_at).getTime(),
+      }),
   );
 
   return {
     layers,
     strokes: strokes ?? [],
+    maskStrokes,
     objects,
     objectLoadErrorCount,
   };
@@ -313,6 +354,47 @@ export async function saveRemoteObject(
   return savedObject;
 }
 
+export async function saveRemoteMaskStroke(
+  supabase: SupabaseClient,
+  context: RemoteSceneContext,
+  maskStroke: MaskStroke,
+  zIndex: number,
+): Promise<void> {
+  await withRetry(async () => {
+    const { error } = await supabase.from("mask_strokes").upsert({
+      id: maskStroke.id,
+      layer_id: maskStroke.layerId,
+      canvas_id: context.canvasId,
+      user_id: context.userId,
+      points: maskStroke.points,
+      style: {
+        mode: maskStroke.mode,
+        width: maskStroke.width,
+        pressureEnabled: maskStroke.pressureEnabled ?? true,
+      },
+      z_index: zIndex,
+      created_at: new Date(maskStroke.createdAt).toISOString(),
+      deleted_at: null,
+    });
+    throwIfError(error);
+  });
+}
+
+export async function deleteRemoteMaskStroke(
+  supabase: SupabaseClient,
+  context: RemoteSceneContext,
+  maskStrokeId: string,
+): Promise<void> {
+  await withRetry(async () => {
+    const { error } = await supabase
+      .from("mask_strokes")
+      .delete()
+      .eq("id", maskStrokeId)
+      .eq("canvas_id", context.canvasId);
+    throwIfError(error);
+  });
+}
+
 export async function saveRemoteLayer(
   supabase: SupabaseClient,
   context: RemoteSceneContext,
@@ -327,6 +409,8 @@ export async function saveRemoteLayer(
       sort_order: layer.order,
       opacity: layer.opacity,
       is_visible: layer.visible,
+      has_mask: layer.hasMask,
+      mask_enabled: layer.maskEnabled,
       created_at: new Date(layer.createdAt).toISOString(),
     });
     throwIfError(error);
@@ -390,6 +474,7 @@ export async function clearRemoteScene(
   const paths = artifacts?.map((artifact) => artifact.storage_path) ?? [];
   const results = await Promise.all([
     supabase.from("strokes").delete().eq("canvas_id", context.canvasId),
+    supabase.from("mask_strokes").delete().eq("canvas_id", context.canvasId),
     supabase.from("canvas_objects").delete().eq("canvas_id", context.canvasId),
   ]);
   results.forEach(({ error }) => throwIfError(error));

@@ -1,3 +1,4 @@
+import { LayerMaskCache } from "@/lib/canvas/layer-masks";
 import { renderRegion } from "@/lib/canvas/scene-renderer";
 import { expandBounds } from "@/lib/canvas/selection";
 import type {
@@ -5,6 +6,7 @@ import type {
   CanvasImageObject,
   CanvasLayer,
   CanvasSelection,
+  MaskStroke,
   Stroke,
 } from "@/types/canvas";
 
@@ -17,6 +19,8 @@ export type SnapshotBundle = {
 type SnapshotInput = {
   selection: CanvasSelection;
   strokes: Stroke[];
+  maskStrokes?: MaskStroke[];
+  maskCache?: LayerMaskCache;
   objects: CanvasImageObject[];
   layers: CanvasLayer[];
   imageSources: Map<string, CanvasImageSource>;
@@ -77,6 +81,8 @@ async function renderSnapshot(
     { width: input.worldWidth, height: input.worldHeight },
     {
       strokes: input.strokes,
+      maskStrokes: input.maskStrokes,
+      maskCache: input.maskCache,
       objects: input.objects,
       layers: input.layers,
       imageSources: input.imageSources,

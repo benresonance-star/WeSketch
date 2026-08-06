@@ -13,6 +13,8 @@ const defaultLayer: CanvasLayer = {
   order: 0,
   opacity: 1,
   visible: true,
+  hasMask: false,
+  maskEnabled: true,
   createdAt: 0,
 };
 

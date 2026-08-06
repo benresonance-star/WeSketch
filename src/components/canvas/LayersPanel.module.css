@@ -164,7 +164,8 @@
 }
 
 .panel:not(.detailed) .orderActions,
-.panel:not(.detailed) .opacityRow {
+.panel:not(.detailed) .opacityRow,
+.panel:not(.detailed) .maskActions {
   display: none;
 }
 
@@ -186,6 +187,29 @@
   max-width: 100%;
   min-width: 0;
   width: 100%;
+}
+
+.maskActions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.maskActions button {
+  height: 28px;
+  width: 28px;
+}
+
+.maskEditActive,
+.maskEditActive:active,
+.maskEditActive:focus-visible {
+  background: var(--danger);
+  color: #fff;
+}
+
+.maskEnableOff {
+  opacity: 0.45;
 }
 
 .row output {

@@ -1,3 +1,4 @@
+import { LayerMaskCache } from "@/lib/canvas/layer-masks";
 import { renderRegion } from "@/lib/canvas/scene-renderer";
 import {
   clampBounds,
@@ -5,7 +6,12 @@ import {
   ensureMinimumBounds,
   expandBounds,
 } from "@/lib/canvas/selection";
-import type { CanvasImageObject, CanvasLayer, Stroke } from "@/types/canvas";
+import type {
+  CanvasImageObject,
+  CanvasLayer,
+  MaskStroke,
+  Stroke,
+} from "@/types/canvas";
 
 const WORLD_WIDTH = 2048;
 const WORLD_HEIGHT = 1536;
@@ -15,6 +21,8 @@ const THUMBNAIL_MIN_CONTENT_SIZE = 180;
 
 export type ProjectThumbnailInput = {
   strokes: Stroke[];
+  maskStrokes?: MaskStroke[];
+  maskCache?: LayerMaskCache;
   objects: CanvasImageObject[];
   layers: CanvasLayer[];
   imageSources: Map<string, CanvasImageSource>;
@@ -95,6 +103,8 @@ export async function renderProjectThumbnail(
     { width: WORLD_WIDTH, height: WORLD_HEIGHT },
     {
       strokes: input.strokes,
+      maskStrokes: input.maskStrokes,
+      maskCache: input.maskCache,
       objects: input.objects,
       layers: input.layers,
       imageSources: input.imageSources,
