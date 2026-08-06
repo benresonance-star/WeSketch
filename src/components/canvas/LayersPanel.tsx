@@ -64,7 +64,8 @@ export function LayersPanel({
     }
 
     const syncScrollbarSize = () => {
-      const scrollbarSize = Math.max(0, list.offsetWidth - list.clientWidth);
+      const measuredSize = Math.max(0, list.offsetWidth - list.clientWidth);
+      const scrollbarSize = measuredSize > 0 ? measuredSize : 12;
       panel.style.setProperty("--layers-scrollbar-size", `${scrollbarSize}px`);
     };
 
@@ -154,10 +155,7 @@ export function LayersPanel({
         >
           <GripVertical aria-hidden="true" />
         </button>
-        <div className={styles.title}>
-          <p className="eyebrow">Canvas stack</p>
-          <strong>Layers</strong>
-        </div>
+        <strong className={styles.title}>Layers</strong>
         <div className={styles.headerActions}>
           <button aria-label="Add layer" onClick={onAdd} type="button">
             <Plus aria-hidden="true" />

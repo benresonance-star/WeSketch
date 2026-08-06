@@ -773,6 +773,7 @@ select:focus-visible {
 .canvas-surface {
   background: var(--surface);
   min-height: 0;
+  outline: none;
   overflow: hidden;
   position: relative;
   touch-action: none;

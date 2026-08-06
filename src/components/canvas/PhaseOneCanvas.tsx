@@ -361,6 +361,33 @@ function createDefaultLayer(canvasId: string): CanvasLayer {
   };
 }
 
+function pastedLayerName(layers: Array<{ name: string }>): string {
+  const usedNumbers = new Set(
+    layers.flatMap((layer) => {
+      const match = /^Pasted image(?: (\d+))?$/.exec(layer.name);
+      if (!match) {
+        return [];
+      }
+      return [match[1] ? Number(match[1]) : 1];
+    }),
+  );
+  let iteration = 1;
+  while (usedNumbers.has(iteration)) {
+    iteration += 1;
+  }
+  return iteration === 1 ? "Pasted image" : `Pasted image ${iteration}`;
+}
+
+function nextLayerOrder(layers: CanvasLayer[]): number {
+  return (
+    layers.reduce((highest, layer) => Math.max(highest, layer.order), -1) + 1
+  );
+}
+
+function nextObjectZIndex(objects: CanvasImageObject[]): number {
+  return objects.reduce((highest, item) => Math.max(highest, item.zIndex), 0) + 1;
+}
+
 type PhaseOneCanvasProps = {
   backLink: ReactNode;
   canvasId: string;
@@ -400,6 +427,7 @@ export function PhaseOneCanvas({
   const objectTransformRef = useRef<ObjectTransformState | null>(null);
   const pointersRef = useRef(new Map<number, TrackedPointer>());
   const viewportRef = useRef<Viewport>({ x: 0, y: 0, scale: 1 });
+  const pasteAnchorRef = useRef<ScreenPoint | null>(null);
   const surfaceSizeRef = useRef<SurfaceSize>({ width: 1, height: 1 });
   const dprRef = useRef(DEFAULT_DPR);
   const modeRef = useRef<InteractionMode>("idle");
@@ -2038,6 +2066,8 @@ export function PhaseOneCanvas({
       }
 
       const current = screenPointFromEvent(event, canvas);
+      pasteAnchorRef.current = screenToWorld(current, viewportRef.current);
+      surfaceRef.current?.focus({ preventScroll: true });
       pointersRef.current.set(event.pointerId, {
         id: event.pointerId,
         pointerType: event.pointerType,
@@ -2735,11 +2765,7 @@ export function PhaseOneCanvas({
           width,
           height,
           rotation: 0,
-          zIndex:
-            objectsRef.current.reduce(
-              (highest, item) => Math.max(highest, item.zIndex),
-              0,
-            ) + 1,
+          zIndex: nextObjectZIndex(objectsRef.current),
           opacity: 1,
           blob: prepared.blob,
           createdAt: Date.now(),
@@ -2780,6 +2806,136 @@ export function PhaseOneCanvas({
       scheduleRender,
       supabase,
     ],
+  );
+
+  const insertPastedImageOnNewLayer = useCallback(
+    async (file: File, anchor?: ScreenPoint | null) => {
+      setStats((current) => ({ ...current, persistenceState: "saving" }));
+
+      try {
+        const prepared = await prepareImportedImage(file);
+        const maximumDisplayEdge = 820;
+        const displayScale =
+          maximumDisplayEdge / Math.max(prepared.width, prepared.height);
+        const width = prepared.width * Math.min(1, displayScale);
+        const height = prepared.height * Math.min(1, displayScale);
+        const placementAnchor = anchor ?? {
+          x: WORLD_WIDTH / 2,
+          y: WORLD_HEIGHT / 2,
+        };
+        const nextLayer: CanvasLayer = {
+          id: createUuid(),
+          name: pastedLayerName(layersRef.current),
+          order: nextLayerOrder(layersRef.current),
+          opacity: 1,
+          visible: true,
+          createdAt: Date.now(),
+        };
+        const canvasObject: CanvasImageObject = {
+          id: createUuid(),
+          layerId: nextLayer.id,
+          type: "image",
+          x: Math.max(
+            0,
+            Math.min(WORLD_WIDTH - width, placementAnchor.x - width / 2),
+          ),
+          y: Math.max(
+            0,
+            Math.min(WORLD_HEIGHT - height, placementAnchor.y - height / 2),
+          ),
+          width,
+          height,
+          rotation: 0,
+          zIndex: nextObjectZIndex(objectsRef.current),
+          opacity: 1,
+          blob: prepared.blob,
+          createdAt: Date.now(),
+        };
+
+        imageSourcesRef.current.set(canvasObject.id, prepared.source);
+        objectsRef.current = [...objectsRef.current, canvasObject];
+        historyRef.current.push({ type: "object-add", object: canvasObject });
+        redoRef.current = [];
+        persistLayerChanges([...layersRef.current, nextLayer], [nextLayer]);
+        activeLayerIdRef.current = nextLayer.id;
+        setActiveLayerId(nextLayer.id);
+        invalidateSnapshots();
+        selectedObjectIdRef.current = canvasObject.id;
+        setSelectedObjectId(canvasObject.id);
+        setTool("object");
+        void saveCanvasObject(projectId, canvasObject).catch(
+          reportLocalCacheError,
+        );
+        queueRemoteSync(async () => {
+          const saved = await saveRemoteObject(
+            supabase,
+            remoteContext,
+            canvasObject,
+          );
+          objectsRef.current = objectsRef.current.map((current) =>
+            current.id === saved.id ? saved : current,
+          );
+          void saveCanvasObject(projectId, saved).catch(reportLocalCacheError);
+        });
+        scheduleRender();
+      } catch {
+        setStats((current) => ({ ...current, persistenceState: "error" }));
+      }
+    },
+    [
+      invalidateSnapshots,
+      persistLayerChanges,
+      projectId,
+      queueRemoteSync,
+      reportLocalCacheError,
+      remoteContext,
+      scheduleRender,
+      supabase,
+    ],
+  );
+
+  const pasteImageFromClipboard = useCallback(
+    async (event: ClipboardEvent) => {
+      if (
+        (event.target as HTMLElement | null)?.closest(
+          "input, textarea, [contenteditable='true']",
+        )
+      ) {
+        return;
+      }
+
+      const surface = surfaceRef.current;
+      const activeElement = document.activeElement;
+      if (
+        !surface ||
+        (!surface.contains(event.target as Node) &&
+          activeElement !== surface &&
+          !surface.contains(activeElement))
+      ) {
+        return;
+      }
+
+      const clipboardItems = event.clipboardData?.items;
+      if (!clipboardItems) {
+        return;
+      }
+
+      for (const item of clipboardItems) {
+        if (!item.type.startsWith("image/")) {
+          continue;
+        }
+
+        const file = item.getAsFile();
+        if (!file) {
+          continue;
+        }
+
+        event.preventDefault();
+        await insertPastedImageOnNewLayer(file, pasteAnchorRef.current);
+        return;
+      }
+    },
+    [insertPastedImageOnNewLayer],
   );
 
   const prepareContext = useCallback(async () => {
@@ -3383,7 +3539,11 @@ export function PhaseOneCanvas({
         <div
           className="canvas-surface"
           data-testid="canvas-surface"
+          onPaste={(event) => {
+            void pasteImageFromClipboard(event.nativeEvent);
+          }}
           ref={surfaceRef}
+          tabIndex={0}
         >
           <canvas className="canvas-layer" ref={sceneCanvasRef} />
           <canvas

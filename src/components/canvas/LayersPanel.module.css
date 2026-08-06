@@ -1,5 +1,5 @@
 .panel {
-  --layers-scrollbar-size: 0px;
+  --layers-scrollbar-size: 12px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -31,11 +31,9 @@
 
 .title {
   flex: 1 1 auto;
-  min-width: 0;
-}
-
-.header strong {
   font-size: 14px;
+  line-height: 1;
+  min-width: 0;
 }
 
 .headerActions,
@@ -101,6 +99,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   touch-action: pan-y;
   width: 100%;
   -webkit-overflow-scrolling: touch;
