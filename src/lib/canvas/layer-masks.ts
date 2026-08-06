@@ -1,16 +1,84 @@
-import { drawStroke, strokeWidthAtPressure } from "@/lib/canvas/stroke-drawing";
-import type {
-  CanvasLayer,
-  MaskStroke,
-  MaskStrokeMode,
-  Stroke,
-} from "@/types/canvas";
+import { drawStroke } from "@/lib/canvas/stroke-drawing";
+import type { CanvasLayer, MaskStroke, Stroke } from "@/types/canvas";
 
-const MASK_REVEAL_COLOR = "#ffffff";
-const MASK_CONCEAL_COLOR = "#000000";
+const MASK_FULLY_VISIBLE = "#ffffff";
+const MASK_FULLY_HIDDEN = "#000000";
 
-export function maskStrokeDrawColor(mode: MaskStrokeMode): string {
-  return mode === "reveal" ? MASK_REVEAL_COLOR : MASK_CONCEAL_COLOR;
+function parseHexColor(color: string): { b: number; g: number; r: number } | null {
+  const normalized = color.trim();
+  const shortMatch = /^#([\da-f]{3})$/i.exec(normalized);
+  if (shortMatch) {
+    const [r, g, b] = shortMatch[1].split("").map((channel) => channel + channel);
+    return {
+      r: Number.parseInt(r, 16),
+      g: Number.parseInt(g, 16),
+      b: Number.parseInt(b, 16),
+    };
+  }
+
+  const longMatch = /^#([\da-f]{6})$/i.exec(normalized);
+  if (longMatch) {
+    const value = longMatch[1];
+    return {
+      r: Number.parseInt(value.slice(0, 2), 16),
+      g: Number.parseInt(value.slice(2, 4), 16),
+      b: Number.parseInt(value.slice(4, 6), 16),
+    };
+  }
+
+  return null;
+}
+
+/** Map a brush colour to mask greyscale (0 hides, 255 reveals). */
+export function colorToMaskGray(color: string): number {
+  const rgb = parseHexColor(color);
+  if (!rgb) {
+    return 255;
+  }
+
+  return Math.min(
+    255,
+    Math.max(
+      0,
+      Math.round(rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114),
+    ),
+  );
+}
+
+export function maskGrayToStrokeColor(gray: number): string {
+  const channel = Math.min(255, Math.max(0, Math.round(gray)));
+  return `rgb(${channel}, ${channel}, ${channel})`;
+}
+
+export function maskStrokePaintColor(
+  maskStroke: Pick<MaskStroke, "color">,
+): string {
+  return maskGrayToStrokeColor(colorToMaskGray(maskStroke.color));
+}
+
+export function maskToolPaintColor(
+  tool: "pen" | "eraser",
+  brushColor: string,
+): string {
+  if (tool === "eraser") {
+    return maskGrayToStrokeColor(255);
+  }
+
+  return maskGrayToStrokeColor(colorToMaskGray(brushColor));
+}
+
+export function normalizeMaskStroke(
+  maskStroke: MaskStroke & { mode?: "reveal" | "conceal"; color?: string },
+): MaskStroke {
+  if (maskStroke.color) {
+    return maskStroke as MaskStroke;
+  }
+
+  return {
+    ...maskStroke,
+    color:
+      maskStroke.mode === "conceal" ? MASK_FULLY_HIDDEN : MASK_FULLY_VISIBLE,
+  };
 }
 
 function maskStrokeAsStroke(maskStroke: MaskStroke): Stroke {
@@ -18,11 +86,32 @@ function maskStrokeAsStroke(maskStroke: MaskStroke): Stroke {
     id: maskStroke.id,
     layerId: maskStroke.layerId,
     points: maskStroke.points,
-    color: maskStrokeDrawColor(maskStroke.mode),
+    color: maskStrokePaintColor(maskStroke),
     width: maskStroke.width,
     pressureEnabled: maskStroke.pressureEnabled,
     createdAt: maskStroke.createdAt,
   };
+}
+
+function applyMaskAlphaFromLuminance(canvas: HTMLCanvasElement): void {
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("2D canvas rendering is unavailable.");
+  }
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = imageData;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const luminance = data[index];
+    data[index] = 255;
+    data[index + 1] = 255;
+    data[index + 2] = 255;
+    data[index + 3] = luminance;
+  }
+
+  context.putImageData(imageData, 0, 0);
 }
 
 export function buildLayerMaskCanvas(
@@ -48,13 +137,11 @@ export function buildLayerMaskCanvas(
       continue;
     }
 
-    context.globalCompositeOperation =
-      maskStroke.mode === "conceal" ? "destination-out" : "source-over";
-    drawStroke(context, maskStrokeAsStroke(maskStroke));
+    context.globalCompositeOperation = "source-over";
+    drawStroke(context, maskStrokeAsStroke(normalizeMaskStroke(maskStroke)));
   }
 
-  context.globalCompositeOperation = "source-over";
-
+  applyMaskAlphaFromLuminance(canvas);
   return canvas;
 }
 

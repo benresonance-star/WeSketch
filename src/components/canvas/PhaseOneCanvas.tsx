@@ -36,8 +36,9 @@ import {
 } from "@/lib/canvas/generation";
 import {
   LayerMaskCache,
-  maskStrokeDrawColor,
+  maskToolPaintColor,
   normalizeCanvasLayer,
+  normalizeMaskStroke,
 } from "@/lib/canvas/layer-masks";
 import {
   drawStroke,
@@ -106,7 +107,6 @@ import type {
   ImageGenerationSize,
   InteractionMode,
   MaskStroke,
-  MaskStrokeMode,
   PrototypeStats,
   SavedUiConfiguration,
   SnapshotPreview,
@@ -438,7 +438,7 @@ export function PhaseOneCanvas({
   const redoRef = useRef<HistoryCommand[]>([]);
   const activePointsRef = useRef<Point[]>([]);
   const activeStrokeIdRef = useRef<string | null>(null);
-  const activeMaskModeRef = useRef<MaskStrokeMode | null>(null);
+  const activeMaskToolRef = useRef<"pen" | "eraser" | null>(null);
   const maskEditingLayerIdRef = useRef<string | null>(null);
   const activePenPointerIdRef = useRef<number | null>(null);
   const erasedStrokeIdsRef = useRef(new Set<string>());
@@ -947,8 +947,11 @@ export function PhaseOneCanvas({
           id: "active",
           layerId: targetLayerId,
           points: activePointsRef.current,
-          color: activeMaskModeRef.current
-            ? maskStrokeDrawColor(activeMaskModeRef.current)
+          color: activeMaskToolRef.current
+            ? maskToolPaintColor(
+                activeMaskToolRef.current,
+                brushSettingsRef.current.color,
+              )
             : brushSettingsRef.current.color,
           width: brushSettingsRef.current.size,
           pressureEnabled: brushSettingsRef.current.pressureEnabled,
@@ -1655,13 +1658,15 @@ export function PhaseOneCanvas({
               : { artifactId: undefined, storagePath: undefined }),
           }),
         );
-        localMaskStrokes = storedMaskStrokes.map((maskStroke) => ({
-          ...maskStroke,
-          id: isUuid(maskStroke.id) ? maskStroke.id : createUuid(),
-          layerId: localLayerIds.has(maskStroke.layerId)
-            ? maskStroke.layerId
-            : canvasId,
-        }));
+        localMaskStrokes = storedMaskStrokes.map((maskStroke) =>
+          normalizeMaskStroke({
+            ...maskStroke,
+            id: isUuid(maskStroke.id) ? maskStroke.id : createUuid(),
+            layerId: localLayerIds.has(maskStroke.layerId)
+              ? maskStroke.layerId
+              : canvasId,
+          }),
+        );
         deletions = storedDeletions.filter((deletion) =>
           isUuid(deletion.entityId),
         );
@@ -2038,7 +2043,7 @@ export function PhaseOneCanvas({
   );
 
   const beginMaskStroke = useCallback(
-    (event: PointerEvent, mode: MaskStrokeMode) => {
+    (event: PointerEvent, tool: "pen" | "eraser") => {
       const canvas = interactionCanvasRef.current;
       const layerId = maskEditingLayerIdRef.current;
 
@@ -2048,7 +2053,7 @@ export function PhaseOneCanvas({
 
       activePenPointerIdRef.current = event.pointerId;
       activeStrokeIdRef.current = createUuid();
-      activeMaskModeRef.current = mode;
+      activeMaskToolRef.current = tool;
       activePointsRef.current = [
         worldPointFromEvent(event, canvas, viewportRef.current),
       ];
@@ -2210,12 +2215,12 @@ export function PhaseOneCanvas({
   const commitActiveStroke = useCallback(() => {
     const strokeId = activeStrokeIdRef.current;
     const points = activePointsRef.current;
-    const maskMode = activeMaskModeRef.current;
+    const maskTool = activeMaskToolRef.current;
     const maskLayerId = maskEditingLayerIdRef.current;
 
     activePenPointerIdRef.current = null;
     activeStrokeIdRef.current = null;
-    activeMaskModeRef.current = null;
+    activeMaskToolRef.current = null;
     activePointsRef.current = [];
     modeRef.current = "idle";
 
@@ -2224,14 +2229,17 @@ export function PhaseOneCanvas({
       return;
     }
 
-    if (maskMode && maskLayerId) {
+    if (maskTool && maskLayerId) {
       const maskStroke: MaskStroke = {
         id: strokeId,
         layerId: maskLayerId,
         points,
         width: brushSettingsRef.current.size,
         pressureEnabled: brushSettingsRef.current.pressureEnabled,
-        mode: maskMode,
+        color: maskToolPaintColor(
+          maskTool,
+          brushSettingsRef.current.color,
+        ),
         createdAt: Date.now(),
       };
       maskStrokesRef.current = [...maskStrokesRef.current, maskStroke];
@@ -2349,10 +2357,10 @@ export function PhaseOneCanvas({
       if (maskEditingLayerIdRef.current) {
         switch (toolRef.current) {
           case "pen":
-            beginMaskStroke(event, "conceal");
+            beginMaskStroke(event, "pen");
             break;
           case "eraser":
-            beginMaskStroke(event, "reveal");
+            beginMaskStroke(event, "eraser");
             break;
           case "hand":
             beginPan(event.pointerId, current);

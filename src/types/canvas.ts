@@ -25,15 +25,14 @@ export type CanvasLayer = {
   createdAt: number;
 };
 
-export type MaskStrokeMode = "reveal" | "conceal";
-
 export type MaskStroke = {
   id: string;
   layerId: string;
   points: Point[];
   width: number;
   pressureEnabled?: boolean;
-  mode: MaskStrokeMode;
+  /** Brush colour when painted; luminance becomes mask density (black hides, white reveals). */
+  color: string;
   createdAt: number;
 };
 

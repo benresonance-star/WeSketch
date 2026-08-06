@@ -1,7 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
 import type { CanvasImageObject, CanvasLayer, MaskStroke, Stroke } from "@/types/canvas";
-import { normalizeCanvasLayer } from "@/lib/canvas/layer-masks";
+import { normalizeCanvasLayer, normalizeMaskStroke } from "@/lib/canvas/layer-masks";
 
 type StoredStroke = Stroke & { projectId?: string };
 type StoredObject = CanvasImageObject & { projectId?: string };
@@ -254,7 +254,7 @@ export async function loadMaskStrokes(projectId: string): Promise<MaskStroke[]> 
   );
 
   if (scoped.length > 0) {
-    return scoped;
+    return scoped.map((maskStroke) => normalizeMaskStroke(maskStroke));
   }
 
   const legacy = (await database.getAll("maskStrokes")).filter(
@@ -262,10 +262,10 @@ export async function loadMaskStrokes(projectId: string): Promise<MaskStroke[]> 
   );
   await Promise.all(
     legacy.map((maskStroke) =>
-      database.put("maskStrokes", { ...maskStroke, projectId }),
+      database.put("maskStrokes", { ...normalizeMaskStroke(maskStroke), projectId }),
     ),
   );
-  return legacy;
+  return legacy.map((maskStroke) => normalizeMaskStroke(maskStroke));
 }
 
 export async function saveMaskStroke(

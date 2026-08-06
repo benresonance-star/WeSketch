@@ -201,9 +201,9 @@
   width: 28px;
 }
 
-.maskEditActive,
-.maskEditActive:active,
-.maskEditActive:focus-visible {
+.panel button.maskEditActive,
+.panel button.maskEditActive:active,
+.panel button.maskEditActive:focus-visible {
   background: var(--danger);
   color: #fff;
 }

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { normalizeCanvasLayer, normalizeMaskStroke } from "@/lib/canvas/layer-masks";
 import type { CanvasImageObject, CanvasLayer, MaskStroke, Stroke } from "@/types/canvas";
-import { normalizeCanvasLayer } from "@/lib/canvas/layer-masks";
 
 const ASSET_BUCKET = "project-assets";
 
@@ -57,7 +57,8 @@ type RemoteMaskStrokeRow = {
   layer_id: string;
   points: MaskStroke["points"];
   style: {
-    mode?: MaskStroke["mode"];
+    color?: string;
+    mode?: "reveal" | "conceal";
     width?: number;
     pressureEnabled?: boolean;
   };
@@ -162,15 +163,19 @@ export async function loadRemoteScene(
   );
   const maskStrokes: MaskStroke[] = (
     maskStrokeResult.data as RemoteMaskStrokeRow[] | null
-  )?.map((row) => ({
-    id: row.id,
-    layerId: row.layer_id,
-    points: row.points,
-    width: row.style.width ?? 4,
-    pressureEnabled: row.style.pressureEnabled ?? true,
-    mode: row.style.mode === "conceal" ? ("conceal" as const) : ("reveal" as const),
-    createdAt: new Date(row.created_at).getTime(),
-  })) ?? [];
+  )?.map((row) =>
+    normalizeMaskStroke({
+      id: row.id,
+      layerId: row.layer_id,
+      points: row.points,
+      width: row.style.width ?? 4,
+      pressureEnabled: row.style.pressureEnabled ?? true,
+      color:
+        row.style.color ??
+        (row.style.mode === "conceal" ? "#000000" : "#ffffff"),
+      createdAt: new Date(row.created_at).getTime(),
+    }),
+  ) ?? [];
   const objectResults = await Promise.allSettled(
     ((objectResult.data as RemoteObjectRow[] | null) ?? []).map(async (row) => {
       const storagePath = row.data.storagePath;
@@ -368,7 +373,7 @@ export async function saveRemoteMaskStroke(
       user_id: context.userId,
       points: maskStroke.points,
       style: {
-        mode: maskStroke.mode,
+        color: maskStroke.color,
         width: maskStroke.width,
         pressureEnabled: maskStroke.pressureEnabled ?? true,
       },
