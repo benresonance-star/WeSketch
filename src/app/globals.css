@@ -236,9 +236,13 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 8px max(14px, env(safe-area-inset-bottom));
-  z-index: 3;
+  min-width: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  padding: 14px 8px max(14px, env(safe-area-inset-bottom));
+  scrollbar-gutter: stable;
+  width: 100%;
+  z-index: 3;
 }
 
 .tool-button {
@@ -256,7 +260,7 @@ button {
   justify-content: center;
   min-height: 56px;
   touch-action: manipulation;
-  width: 56px;
+  width: 100%;
 }
 
 .tool-button.active {
@@ -795,8 +799,30 @@ select:focus-visible {
   -webkit-touch-callout: none;
 }
 
+.canvas-input-layer[data-tool="pen"],
+.canvas-input-layer[data-tool="eraser"] {
+  cursor: none;
+}
+
 .canvas-input-layer[data-tool="hand"] {
   cursor: grab;
+}
+
+.brush-cursor {
+  border: 1px solid rgba(0, 0, 0, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.85);
+  display: none;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+}
+
+.brush-cursor[data-tool="eraser"] {
+  border-style: dashed;
 }
 
 .object-properties-anchor {
@@ -1832,7 +1858,7 @@ select:focus-visible {
     flex-basis: 48px;
     font-size: 9px;
     min-height: 48px;
-    width: 54px;
+    width: 100%;
   }
 
   .brush-tool-button {

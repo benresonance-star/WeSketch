@@ -424,6 +424,8 @@ export function PhaseOneCanvas({
   userId,
 }: PhaseOneCanvasProps) {
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const brushCursorRef = useRef<HTMLDivElement>(null);
+  const brushCursorClientRef = useRef<ScreenPoint | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
   const interactionCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1028,6 +1030,63 @@ export function PhaseOneCanvas({
     context.restore();
   }, []);
 
+  const hideBrushCursor = useCallback(() => {
+    brushCursorClientRef.current = null;
+    const cursor = brushCursorRef.current;
+    if (cursor) {
+      cursor.style.display = "none";
+    }
+  }, []);
+
+  const updateBrushCursor = useCallback(
+    (event?: Pick<PointerEvent, "clientX" | "clientY" | "pointerType">) => {
+      const cursor = brushCursorRef.current;
+      const surface = surfaceRef.current;
+
+      if (!cursor || !surface) {
+        return;
+      }
+
+      if (event) {
+        if (event.pointerType === "touch") {
+          hideBrushCursor();
+          return;
+        }
+
+        brushCursorClientRef.current = {
+          x: event.clientX,
+          y: event.clientY,
+        };
+      }
+
+      const clientPoint = brushCursorClientRef.current;
+      const activeTool = toolRef.current;
+
+      if (
+        !clientPoint ||
+        (activeTool !== "pen" && activeTool !== "eraser") ||
+        modeRef.current !== "idle"
+      ) {
+        cursor.style.display = "none";
+        return;
+      }
+
+      const bounds = surface.getBoundingClientRect();
+      const diameter = Math.max(
+        1,
+        brushSettingsRef.current.size * viewportRef.current.scale,
+      );
+
+      cursor.style.display = "block";
+      cursor.style.width = `${diameter}px`;
+      cursor.style.height = `${diameter}px`;
+      cursor.style.left = `${clientPoint.x - bounds.left}px`;
+      cursor.style.top = `${clientPoint.y - bounds.top}px`;
+      cursor.dataset.tool = activeTool;
+    },
+    [hideBrushCursor],
+  );
+
   const scheduleRender = useCallback(() => {
     if (frameRef.current !== null) {
       return;
@@ -1037,8 +1096,9 @@ export function PhaseOneCanvas({
       frameRef.current = null;
       renderScene();
       renderInteractions();
+      updateBrushCursor();
     });
-  }, [renderInteractions, renderScene]);
+  }, [renderInteractions, renderScene, updateBrushCursor]);
 
   const changeThemeMode = useCallback(
     (nextTheme: ThemeMode) => {
@@ -1341,7 +1401,8 @@ export function PhaseOneCanvas({
 
   useEffect(() => {
     toolRef.current = tool;
-  }, [tool]);
+    updateBrushCursor();
+  }, [tool, updateBrushCursor]);
 
   useEffect(() => {
     maskEditingLayerIdRef.current = maskEditingLayerId;
@@ -1479,7 +1540,8 @@ export function PhaseOneCanvas({
       JSON.stringify(brushSettings),
     );
     renderInteractions();
-  }, [brushSettings, renderInteractions]);
+    updateBrushCursor();
+  }, [brushSettings, renderInteractions, updateBrushCursor]);
 
   useEffect(() => {
     dprRef.current = Math.min(MAX_DPR, dpr);
@@ -2061,9 +2123,10 @@ export function PhaseOneCanvas({
       modeRef.current = "inking";
       pinchRef.current = null;
       clearPan();
+      hideBrushCursor();
       renderInteractions();
     },
-    [clearPan, renderInteractions, stats.persistenceState],
+    [clearPan, hideBrushCursor, renderInteractions, stats.persistenceState],
   );
 
   const beginStroke = useCallback(
@@ -2082,9 +2145,10 @@ export function PhaseOneCanvas({
       modeRef.current = "inking";
       pinchRef.current = null;
       clearPan();
+      hideBrushCursor();
       renderInteractions();
     },
-    [clearPan, renderInteractions, stats.persistenceState],
+    [clearPan, hideBrushCursor, renderInteractions, stats.persistenceState],
   );
 
   const beginSelection = useCallback(
@@ -2386,6 +2450,7 @@ export function PhaseOneCanvas({
           activePenPointerIdRef.current = event.pointerId;
           erasedStrokeIdsRef.current.clear();
           modeRef.current = "erasing";
+          hideBrushCursor();
           eraseAt(screenToWorld(current, viewportRef.current));
           break;
         case "rectangle":
@@ -2414,6 +2479,7 @@ export function PhaseOneCanvas({
       beginSelection,
       beginStroke,
       eraseAt,
+      hideBrushCursor,
     ],
   );
 
@@ -2448,6 +2514,7 @@ export function PhaseOneCanvas({
         }
 
         renderInteractions();
+        updateBrushCursor(event);
         return;
       }
 
@@ -2456,6 +2523,7 @@ export function PhaseOneCanvas({
         activePenPointerIdRef.current === event.pointerId
       ) {
         eraseAt(screenToWorld(current, viewportRef.current));
+        updateBrushCursor(event);
         return;
       }
 
@@ -2486,6 +2554,7 @@ export function PhaseOneCanvas({
         }
 
         renderInteractions();
+        updateBrushCursor(event);
         return;
       }
 
@@ -2526,6 +2595,7 @@ export function PhaseOneCanvas({
           };
         });
         scheduleRender();
+        updateBrushCursor(event);
         return;
       }
 
@@ -2550,6 +2620,7 @@ export function PhaseOneCanvas({
           scheduleRender();
         }
 
+        updateBrushCursor(event);
         return;
       }
 
@@ -2566,8 +2637,10 @@ export function PhaseOneCanvas({
         };
         scheduleRender();
       }
+
+      updateBrushCursor(event);
     },
-    [eraseAt, renderInteractions, scheduleRender],
+    [eraseAt, renderInteractions, scheduleRender, updateBrushCursor],
   );
 
   const finishPointer = useCallback(
@@ -2675,6 +2748,8 @@ export function PhaseOneCanvas({
         clearPan();
         modeRef.current = "idle";
       }
+
+      updateBrushCursor(event);
     },
     [
       beginPan,
@@ -2688,6 +2763,7 @@ export function PhaseOneCanvas({
       remoteContext,
       renderInteractions,
       supabase,
+      updateBrushCursor,
     ],
   );
 
@@ -3898,6 +3974,12 @@ export function PhaseOneCanvas({
               finishPointer(event.nativeEvent, true);
             }}
             onPointerDown={handlePointerDown}
+            onPointerEnter={(event) => {
+              updateBrushCursor(event.nativeEvent);
+            }}
+            onPointerLeave={() => {
+              hideBrushCursor();
+            }}
             onPointerMove={handlePointerMove}
             onPointerUp={(event) => {
               event.preventDefault();
@@ -3909,6 +3991,7 @@ export function PhaseOneCanvas({
             }}
             ref={interactionCanvasRef}
           />
+          <div aria-hidden="true" className="brush-cursor" ref={brushCursorRef} />
           <button
             aria-label="Open object properties"
             className="object-properties-anchor"
