@@ -133,20 +133,39 @@
   width: 100%;
 }
 
+.rowTitle,
 .rowMain > input {
   appearance: none;
   background: transparent;
   border: 0;
   color: var(--ink);
-  flex: 1 1 auto;
   font-size: 12px;
   font-weight: 700;
   min-width: 0;
   overflow: hidden;
-  padding: 6px 2px;
   text-overflow: ellipsis;
   white-space: nowrap;
   -webkit-appearance: none;
+}
+
+.rowTitle {
+  box-sizing: border-box;
+  display: block;
+  padding: 2px;
+  width: 100%;
+}
+
+.panel:not(.detailed) .rowTitle {
+  display: none;
+}
+
+.rowMain > input {
+  flex: 1 1 auto;
+  padding: 6px 2px;
+}
+
+.panel.detailed .rowMain .orderActions {
+  margin-left: auto;
 }
 
 .orderActions {
@@ -201,22 +220,31 @@
   width: 28px;
 }
 
+.panel button.maskEditButton:not(.maskEditActive) {
+  border: 1px solid var(--muted);
+  color: var(--muted);
+}
+
+.panel button.maskEditButton:not(.maskEditActive):active,
+.panel button.maskEditButton:not(.maskEditActive):focus-visible {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .panel button.maskEditActive,
 .panel button.maskEditActive:active,
 .panel button.maskEditActive:focus-visible {
   background: var(--danger);
+  border: 1px solid var(--danger);
   color: #fff;
 }
 
-.maskEditActive .maskEditLabel {
+.maskEditLabel {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1;
-}
-
-.maskEditActive svg {
-  display: none;
 }
 
 .maskEnableOff {

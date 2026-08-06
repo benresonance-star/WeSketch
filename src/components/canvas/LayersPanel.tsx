@@ -16,7 +16,6 @@ import {
   Link2,
   Plus,
   SlidersHorizontal,
-  Square,
   Unlink,
   X,
 } from "lucide-react";
@@ -219,6 +218,24 @@ export function LayersPanel({
             key={layer.id}
             onClick={() => onActivate(layer.id)}
           >
+            {isDetailedView ? (
+              <input
+                aria-label="Layer name"
+                className={styles.rowTitle}
+                defaultValue={layer.name}
+                key={`${layer.id}:${layer.name}:title`}
+                maxLength={80}
+                onBlur={(event) => {
+                  const name = event.target.value.trim();
+                  if (name && name !== layer.name) {
+                    onChange({ ...layer, name });
+                  } else {
+                    event.target.value = layer.name;
+                  }
+                }}
+                onClick={(event) => event.stopPropagation()}
+              />
+            ) : null}
             <div className={styles.rowMain}>
               <button
                 aria-label={layer.visible ? "Hide layer" : "Show layer"}
@@ -245,8 +262,8 @@ export function LayersPanel({
                   aria-pressed={maskEditingLayerId === layer.id}
                   className={
                     maskEditingLayerId === layer.id
-                      ? styles.maskEditActive
-                      : undefined
+                      ? `${styles.maskEditButton} ${styles.maskEditActive}`
+                      : styles.maskEditButton
                   }
                   disabled={!layer.visible}
                   onClick={(event) => {
@@ -260,13 +277,9 @@ export function LayersPanel({
                   }
                   type="button"
                 >
-                  {maskEditingLayerId === layer.id ? (
-                    <span aria-hidden="true" className={styles.maskEditLabel}>
-                      M
-                    </span>
-                  ) : (
-                    <Square aria-hidden="true" />
-                  )}
+                  <span aria-hidden="true" className={styles.maskEditLabel}>
+                    M
+                  </span>
                 </button>
                 {layer.hasMask ? (
                   <button
@@ -291,21 +304,23 @@ export function LayersPanel({
                   </button>
                 ) : null}
               </div>
-              <input
-                aria-label="Layer name"
-                defaultValue={layer.name}
-                key={`${layer.id}:${layer.name}`}
-                maxLength={80}
-                onBlur={(event) => {
-                  const name = event.target.value.trim();
-                  if (name && name !== layer.name) {
-                    onChange({ ...layer, name });
-                  } else {
-                    event.target.value = layer.name;
-                  }
-                }}
-                onClick={(event) => event.stopPropagation()}
-              />
+              {!isDetailedView ? (
+                <input
+                  aria-label="Layer name"
+                  defaultValue={layer.name}
+                  key={`${layer.id}:${layer.name}`}
+                  maxLength={80}
+                  onBlur={(event) => {
+                    const name = event.target.value.trim();
+                    if (name && name !== layer.name) {
+                      onChange({ ...layer, name });
+                    } else {
+                      event.target.value = layer.name;
+                    }
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                />
+              ) : null}
               <div className={styles.orderActions}>
                 <button
                   aria-label="Move layer up"
