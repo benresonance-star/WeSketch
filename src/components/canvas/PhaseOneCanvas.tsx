@@ -3324,10 +3324,7 @@ export function PhaseOneCanvas({
       <header className="prototype-header">
         <div className="canvas-heading">
           <span className="canvas-back">{backLink}</span>
-          <div>
-            <p className="eyebrow">Phase 2 durable project</p>
-            <h1>{projectTitle}</h1>
-          </div>
+          <h1>{projectTitle}</h1>
         </div>
         <div className="project-header-actions">
           <div className="target-badge">

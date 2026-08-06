@@ -82,7 +82,7 @@ button {
 .diagnostics-panel h2 {
   font-size: 18px;
   letter-spacing: -0.02em;
-  margin: 3px 0 0;
+  margin: 0;
 }
 
 .canvas-heading {
