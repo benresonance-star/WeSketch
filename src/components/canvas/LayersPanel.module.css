@@ -208,6 +208,17 @@
   color: #fff;
 }
 
+.maskEditActive .maskEditLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.maskEditActive svg {
+  display: none;
+}
+
 .maskEnableOff {
   opacity: 0.45;
 }

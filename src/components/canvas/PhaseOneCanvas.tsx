@@ -2349,10 +2349,10 @@ export function PhaseOneCanvas({
       if (maskEditingLayerIdRef.current) {
         switch (toolRef.current) {
           case "pen":
-            beginMaskStroke(event, "reveal");
+            beginMaskStroke(event, "conceal");
             break;
           case "eraser":
-            beginMaskStroke(event, "conceal");
+            beginMaskStroke(event, "reveal");
             break;
           case "hand":
             beginPan(event.pointerId, current);

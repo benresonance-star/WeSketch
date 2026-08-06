@@ -40,7 +40,7 @@ export function buildLayerMaskCanvas(
     throw new Error("2D canvas rendering is unavailable.");
   }
 
-  context.fillStyle = MASK_REVEAL_COLOR;
+  context.fillStyle = "rgba(255, 255, 255, 1)";
   context.fillRect(0, 0, width, height);
 
   for (const maskStroke of maskStrokes) {
@@ -48,8 +48,12 @@ export function buildLayerMaskCanvas(
       continue;
     }
 
+    context.globalCompositeOperation =
+      maskStroke.mode === "conceal" ? "destination-out" : "source-over";
     drawStroke(context, maskStrokeAsStroke(maskStroke));
   }
+
+  context.globalCompositeOperation = "source-over";
 
   return canvas;
 }

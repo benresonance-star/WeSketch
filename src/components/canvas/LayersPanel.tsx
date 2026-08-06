@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -37,6 +38,7 @@ type LayersPanelProps = {
 };
 
 const INITIAL_POSITION = { x: 84, y: 88 };
+const LAYERS_PANEL_VIEW_KEY = "wesketch-layers-panel-view-v1";
 
 export function LayersPanel({
   activeLayerId,
@@ -64,6 +66,27 @@ export function LayersPanel({
   const sortedLayers = [...layers].sort(
     (first, second) => second.order - first.order,
   );
+
+  useEffect(() => {
+    const storedView = window.localStorage.getItem(LAYERS_PANEL_VIEW_KEY);
+    if (storedView === "detailed" || storedView === "simple") {
+      const frame = requestAnimationFrame(() =>
+        setIsDetailedView(storedView === "detailed"),
+      );
+      return () => cancelAnimationFrame(frame);
+    }
+  }, []);
+
+  const toggleDetailedView = () => {
+    setIsDetailedView((current) => {
+      const next = !current;
+      window.localStorage.setItem(
+        LAYERS_PANEL_VIEW_KEY,
+        next ? "detailed" : "simple",
+      );
+      return next;
+    });
+  };
 
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -177,7 +200,7 @@ export function LayersPanel({
             }
             aria-pressed={isDetailedView}
             className={isDetailedView ? styles.detailToggleActive : undefined}
-            onClick={() => setIsDetailedView((current) => !current)}
+            onClick={toggleDetailedView}
             type="button"
           >
             <SlidersHorizontal aria-hidden="true" />
@@ -237,7 +260,13 @@ export function LayersPanel({
                   }
                   type="button"
                 >
-                  <Square aria-hidden="true" />
+                  {maskEditingLayerId === layer.id ? (
+                    <span aria-hidden="true" className={styles.maskEditLabel}>
+                      M
+                    </span>
+                  ) : (
+                    <Square aria-hidden="true" />
+                  )}
                 </button>
                 {layer.hasMask ? (
                   <button
