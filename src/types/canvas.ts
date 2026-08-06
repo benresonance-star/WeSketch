@@ -96,7 +96,8 @@ export type InteractionMode =
   | "erasing"
   | "selecting"
   | "objectTransform"
-  | "viewport";
+  | "viewport"
+  | "brushResize";
 
 export type SnapshotPreview = {
   selectionUrl: string;

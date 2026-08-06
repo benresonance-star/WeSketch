@@ -15,6 +15,7 @@ import { Settings, SlidersHorizontal } from "lucide-react";
 import { CanvasToolbar } from "@/components/canvas/CanvasToolbar";
 import { ContextPanel } from "@/components/canvas/ContextPanel";
 import { ObjectPropertiesPanel } from "@/components/canvas/ObjectPropertiesPanel";
+import { brushSizeFromVerticalDrag } from "@/lib/canvas/brush-size";
 import {
   distance,
   fitViewport,
@@ -171,6 +172,12 @@ type PanState = {
   pointerId: number;
   initialPoint: ScreenPoint;
   initialViewport: Viewport;
+};
+
+type BrushResizeState = {
+  pointerId: number;
+  startSize: number;
+  startY: number;
 };
 
 type ObjectTransformState = {
@@ -457,6 +464,8 @@ export function PhaseOneCanvas({
   const modeRef = useRef<InteractionMode>("idle");
   const pinchRef = useRef<PinchState | null>(null);
   const panRef = useRef<PanState | null>(null);
+  const bKeyHeldRef = useRef(false);
+  const brushResizeRef = useRef<BrushResizeState | null>(null);
   const frameRef = useRef<number | null>(null);
   const hasFittedRef = useRef(false);
   const pendingSyncCountRef = useRef(0);
@@ -1065,7 +1074,7 @@ export function PhaseOneCanvas({
       if (
         !clientPoint ||
         (activeTool !== "pen" && activeTool !== "eraser") ||
-        modeRef.current !== "idle"
+        (modeRef.current !== "idle" && modeRef.current !== "brushResize")
       ) {
         cursor.style.display = "none";
         return;
@@ -2419,6 +2428,24 @@ export function PhaseOneCanvas({
         return;
       }
 
+      const canBrushResize =
+        event.pointerType === "mouse" &&
+        bKeyHeldRef.current &&
+        (toolRef.current === "pen" || toolRef.current === "eraser");
+
+      if (canBrushResize) {
+        brushResizeRef.current = {
+          pointerId: event.pointerId,
+          startSize: brushSettingsRef.current.size,
+          startY: event.clientY,
+        };
+        modeRef.current = "brushResize";
+        pinchRef.current = null;
+        clearPan();
+        updateBrushCursor(event);
+        return;
+      }
+
       if (maskEditingLayerIdRef.current) {
         switch (toolRef.current) {
           case "pen":
@@ -2478,8 +2505,10 @@ export function PhaseOneCanvas({
       beginPinch,
       beginSelection,
       beginStroke,
+      clearPan,
       eraseAt,
       hideBrushCursor,
+      updateBrushCursor,
     ],
   );
 
@@ -2498,6 +2527,25 @@ export function PhaseOneCanvas({
 
       if (tracked) {
         tracked.current = current;
+      }
+
+      if (
+        modeRef.current === "brushResize" &&
+        brushResizeRef.current?.pointerId === event.pointerId
+      ) {
+        const resize = brushResizeRef.current;
+        const nextSize = brushSizeFromVerticalDrag(
+          resize.startSize,
+          resize.startY,
+          event.clientY,
+        );
+
+        if (nextSize !== brushSettingsRef.current.size) {
+          setBrushSettings((current) => ({ ...current, size: nextSize }));
+        }
+
+        updateBrushCursor(event);
+        return;
       }
 
       if (
@@ -2653,6 +2701,12 @@ export function PhaseOneCanvas({
       }
 
       if (
+        modeRef.current === "brushResize" &&
+        brushResizeRef.current?.pointerId === event.pointerId
+      ) {
+        brushResizeRef.current = null;
+        modeRef.current = "idle";
+      } else if (
         modeRef.current === "inking" &&
         activePenPointerIdRef.current === event.pointerId
       ) {
@@ -3004,6 +3058,54 @@ export function PhaseOneCanvas({
     historyRef.current = [...historyRef.current, command];
     applyHistoryCommand(command, true);
   }, [applyHistoryCommand]);
+
+  useEffect(() => {
+    const clearBKey = () => {
+      bKeyHeldRef.current = false;
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key.toLowerCase() !== "b" ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      if (isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+
+      bKeyHeldRef.current = true;
+
+      if (
+        surfaceRef.current?.contains(document.activeElement) ||
+        document.activeElement === surfaceRef.current
+      ) {
+        event.preventDefault();
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "b") {
+        clearBKey();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", clearBKey);
+    document.addEventListener("visibilitychange", clearBKey);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", clearBKey);
+      document.removeEventListener("visibilitychange", clearBKey);
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

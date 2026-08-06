@@ -298,6 +298,7 @@ select:focus-visible {
 .brush-tool-button {
   flex-basis: 48px;
   min-height: 48px;
+  touch-action: none;
 }
 
 .brush-tool-swatch {

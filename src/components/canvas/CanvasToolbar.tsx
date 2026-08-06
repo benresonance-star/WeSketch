@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Bot,
   Eraser,
@@ -20,6 +20,7 @@ import {
   type BrushPaletteLayout,
 } from "@/components/canvas/BrushPalette";
 import { LayersPanel } from "@/components/canvas/LayersPanel";
+import { brushSizeFromVerticalDrag } from "@/lib/canvas/brush-size";
 import type { BrushSettings, CanvasLayer, Tool } from "@/types/canvas";
 
 type CanvasToolbarProps = {
@@ -55,6 +56,14 @@ const TOOLS: Array<{
   { tool: "hand", icon: Hand, label: "Pan", separatorBefore: true },
 ];
 const BRUSH_PALETTE_LAYOUT_KEY = "wesketch-brush-palette-layout-v1";
+const SWATCH_PEN_DRAG_THRESHOLD_PX = 4;
+
+type SwatchPenDragState = {
+  moved: boolean;
+  pointerId: number;
+  startSize: number;
+  startY: number;
+};
 
 export function CanvasToolbar({
   isAgentPanelOpen,
@@ -81,6 +90,8 @@ export function CanvasToolbar({
   const [isLayersOpen, setIsLayersOpen] = useState(false);
   const [paletteLayout, setPaletteLayout] =
     useState<BrushPaletteLayout>("standard");
+  const swatchPenDragRef = useRef<SwatchPenDragState | null>(null);
+  const suppressSwatchClickRef = useRef(false);
 
   useEffect(() => {
     const storedLayout = window.localStorage.getItem(BRUSH_PALETTE_LAYOUT_KEY);
@@ -93,6 +104,87 @@ export function CanvasToolbar({
   const changePaletteLayout = (layout: BrushPaletteLayout) => {
     setPaletteLayout(layout);
     window.localStorage.setItem(BRUSH_PALETTE_LAYOUT_KEY, layout);
+  };
+
+  const togglePenPalette = () => {
+    onToolChange("pen");
+    setIsPaletteOpen((current) => (tool === "pen" ? !current : true));
+  };
+
+  const handleSwatchPenPointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.pointerType !== "pen") {
+      return;
+    }
+
+    swatchPenDragRef.current = {
+      moved: false,
+      pointerId: event.pointerId,
+      startSize: brushSettings.size,
+      startY: event.clientY,
+    };
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const handleSwatchPenPointerMove = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const drag = swatchPenDragRef.current;
+
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (
+      !drag.moved &&
+      Math.abs(event.clientY - drag.startY) >= SWATCH_PEN_DRAG_THRESHOLD_PX
+    ) {
+      drag.moved = true;
+    }
+
+    if (!drag.moved) {
+      return;
+    }
+
+    const nextSize = brushSizeFromVerticalDrag(
+      drag.startSize,
+      drag.startY,
+      event.clientY,
+    );
+
+    if (nextSize !== brushSettings.size) {
+      onBrushSettingsChange({ ...brushSettings, size: nextSize });
+    }
+
+    event.preventDefault();
+  };
+
+  const finishSwatchPenPointer = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => {
+    const drag = swatchPenDragRef.current;
+
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    swatchPenDragRef.current = null;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (!drag.moved) {
+      suppressSwatchClickRef.current = true;
+      togglePenPalette();
+    } else {
+      suppressSwatchClickRef.current = true;
+    }
+
+    event.preventDefault();
   };
 
   return (
@@ -115,9 +207,17 @@ export function CanvasToolbar({
           aria-label="Toggle pen palette"
           className="tool-button brush-tool-button"
           onClick={() => {
-            onToolChange("pen");
-            setIsPaletteOpen((current) => (tool === "pen" ? !current : true));
+            if (suppressSwatchClickRef.current) {
+              suppressSwatchClickRef.current = false;
+              return;
+            }
+
+            togglePenPalette();
           }}
+          onPointerCancel={finishSwatchPenPointer}
+          onPointerDown={handleSwatchPenPointerDown}
+          onPointerMove={handleSwatchPenPointerMove}
+          onPointerUp={finishSwatchPenPointer}
           type="button"
         >
           <span
