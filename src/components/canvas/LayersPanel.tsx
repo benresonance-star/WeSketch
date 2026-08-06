@@ -16,6 +16,7 @@ import {
   Link2,
   Plus,
   SlidersHorizontal,
+  Trash2,
   Unlink,
   X,
 } from "lucide-react";
@@ -25,12 +26,16 @@ import type { CanvasLayer } from "@/types/canvas";
 
 type LayersPanelProps = {
   activeLayerId: string;
+  isolatingLayerId: string | null;
   layers: CanvasLayer[];
   maskEditingLayerId: string | null;
+  preferredTop?: number | null;
   onActivate: (id: string) => void;
   onAdd: () => void;
   onChange: (layer: CanvasLayer) => void;
   onClose: () => void;
+  onDelete: (id: string) => void;
+  onIsolateToggle: (id: string) => void;
   onMaskEditToggle: (id: string) => void;
   onMaskEnabledToggle: (id: string) => void;
   onMove: (id: string, direction: "up" | "down") => void;
@@ -41,12 +46,16 @@ const LAYERS_PANEL_VIEW_KEY = "wesketch-layers-panel-view-v1";
 
 export function LayersPanel({
   activeLayerId,
+  isolatingLayerId,
   layers,
   maskEditingLayerId,
+  preferredTop = null,
   onActivate,
   onAdd,
   onChange,
   onClose,
+  onDelete,
+  onIsolateToggle,
   onMaskEditToggle,
   onMaskEnabledToggle,
   onMove,
@@ -60,6 +69,7 @@ export function LayersPanel({
     startX: number;
     startY: number;
   } | null>(null);
+  const userPositionedRef = useRef(false);
   const [position, setPosition] = useState(INITIAL_POSITION);
   const [isDetailedView, setIsDetailedView] = useState(false);
   const sortedLayers = [...layers].sort(
@@ -107,6 +117,14 @@ export function LayersPanel({
 
     return () => observer.disconnect();
   }, [isDetailedView, sortedLayers.length]);
+
+  useLayoutEffect(() => {
+    if (preferredTop == null || userPositionedRef.current) {
+      return;
+    }
+
+    setPosition((current) => ({ ...current, y: preferredTop }));
+  }, [preferredTop]);
 
   const clampPosition = (x: number, y: number) => {
     const bounds = panelRef.current?.getBoundingClientRect();
@@ -160,6 +178,7 @@ export function LayersPanel({
       return;
     }
     dragRef.current = null;
+    userPositionedRef.current = true;
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
@@ -281,6 +300,34 @@ export function LayersPanel({
                     M
                   </span>
                 </button>
+                <button
+                  aria-label={
+                    isolatingLayerId === layer.id
+                      ? "Exit layer isolate mode"
+                      : "Isolate layer"
+                  }
+                  aria-pressed={isolatingLayerId === layer.id}
+                  className={
+                    isolatingLayerId === layer.id
+                      ? `${styles.isolateEditButton} ${styles.maskEditActive}`
+                      : styles.isolateEditButton
+                  }
+                  disabled={!layer.visible}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onIsolateToggle(layer.id);
+                  }}
+                  title={
+                    layer.visible
+                      ? undefined
+                      : "Show the layer before isolating it"
+                  }
+                  type="button"
+                >
+                  <span aria-hidden="true" className={styles.maskEditLabel}>
+                    I
+                  </span>
+                </button>
                 {layer.hasMask ? (
                   <button
                     aria-label={
@@ -321,29 +368,51 @@ export function LayersPanel({
                   onClick={(event) => event.stopPropagation()}
                 />
               ) : null}
-              <div className={styles.orderActions}>
-                <button
-                  aria-label="Move layer up"
-                  disabled={index === 0}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onMove(layer.id, "up");
-                  }}
-                  type="button"
-                >
-                  <ChevronUp aria-hidden="true" />
-                </button>
-                <button
-                  aria-label="Move layer down"
-                  disabled={index === sortedLayers.length - 1}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onMove(layer.id, "down");
-                  }}
-                  type="button"
-                >
-                  <ChevronDown aria-hidden="true" />
-                </button>
+              <div className={styles.rowActions}>
+                <div className={styles.orderActions}>
+                  <button
+                    aria-label="Move layer up"
+                    disabled={index === 0}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMove(layer.id, "up");
+                    }}
+                    type="button"
+                  >
+                    <ChevronUp aria-hidden="true" />
+                  </button>
+                  <button
+                    aria-label="Move layer down"
+                    disabled={index === sortedLayers.length - 1}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMove(layer.id, "down");
+                    }}
+                    type="button"
+                  >
+                    <ChevronDown aria-hidden="true" />
+                  </button>
+                </div>
+                {isDetailedView ? (
+                  <button
+                    aria-label="Delete layer"
+                    className={styles.deleteButton}
+                    disabled={sortedLayers.length <= 1}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (
+                        window.confirm(
+                          "Are you sure you want to delete this layer?",
+                        )
+                      ) {
+                        onDelete(layer.id);
+                      }
+                    }}
+                    type="button"
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </button>
+                ) : null}
               </div>
             </div>
             <label className={styles.opacityRow}>

@@ -10,7 +10,7 @@ type StoredMaskStroke = MaskStroke & { projectId?: string };
 export type SceneDeletion = {
   key: string;
   projectId: string;
-  kind: "stroke" | "object" | "mask-stroke";
+  kind: "stroke" | "object" | "mask-stroke" | "layer";
   entityId: string;
 };
 
@@ -243,6 +243,11 @@ export async function saveCanvasLayer(
     ...normalizeCanvasLayer(layer),
     projectId,
   });
+}
+
+export async function deleteCanvasLayer(layerId: string): Promise<void> {
+  const database = await getDatabase();
+  await database.delete("layers", layerId);
 }
 
 export async function loadMaskStrokes(projectId: string): Promise<MaskStroke[]> {

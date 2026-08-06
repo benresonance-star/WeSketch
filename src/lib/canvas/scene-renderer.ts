@@ -1,3 +1,4 @@
+import { isLayerRenderable } from "@/lib/canvas/layer-isolate";
 import {
   drawMaskedLayerContent,
   type LayerMaskCache,
@@ -19,6 +20,7 @@ type SurfaceSize = {
 
 type Scene = {
   layers?: CanvasLayer[];
+  isolatingLayerId?: string | null;
   strokes: Stroke[];
   maskStrokes?: MaskStroke[];
   objects: CanvasImageObject[];
@@ -35,9 +37,12 @@ type WorldSize = {
 
 export { drawStroke, strokeWidthAtPressure } from "@/lib/canvas/stroke-drawing";
 
-export function orderedVisibleLayers(layers: CanvasLayer[]): CanvasLayer[] {
+export function orderedVisibleLayers(
+  layers: CanvasLayer[],
+  isolatingLayerId: string | null = null,
+): CanvasLayer[] {
   return [...layers]
-    .filter((layer) => layer.visible && layer.opacity > 0)
+    .filter((layer) => isLayerRenderable(layer, isolatingLayerId))
     .sort((first, second) => first.order - second.order);
 }
 
@@ -112,7 +117,10 @@ function drawContent(
   const maskStrokes = scene.maskStrokes ?? [];
 
   if (scene.layers && scene.layers.length > 0) {
-    for (const layer of orderedVisibleLayers(scene.layers)) {
+    for (const layer of orderedVisibleLayers(
+      scene.layers,
+      scene.isolatingLayerId ?? null,
+    )) {
       const usesMask =
         layer.hasMask && layer.maskEnabled && scene.maskCache !== undefined;
 

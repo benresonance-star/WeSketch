@@ -422,6 +422,21 @@ export async function saveRemoteLayer(
   });
 }
 
+export async function deleteRemoteLayer(
+  supabase: SupabaseClient,
+  context: RemoteSceneContext,
+  layerId: string,
+): Promise<void> {
+  await withRetry(async () => {
+    const { error } = await supabase
+      .from("canvas_layers")
+      .delete()
+      .eq("id", layerId)
+      .eq("canvas_id", context.canvasId);
+    throwIfError(error);
+  });
+}
+
 export async function deleteRemoteObject(
   supabase: SupabaseClient,
   context: RemoteSceneContext,

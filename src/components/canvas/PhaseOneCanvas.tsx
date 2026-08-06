@@ -42,6 +42,7 @@ import {
   normalizeCanvasLayer,
   normalizeMaskStroke,
 } from "@/lib/canvas/layer-masks";
+import { isLayerRenderable } from "@/lib/canvas/layer-isolate";
 import {
   drawStroke,
   renderViewport,
@@ -61,6 +62,7 @@ import {
   clearSceneDeletion,
   clearSceneDeletions,
   clearStrokes,
+  deleteCanvasLayer,
   deleteCanvasObject,
   deleteMaskStroke,
   deleteStroke,
@@ -79,6 +81,7 @@ import {
 import {
   clearRemoteScene,
   deleteRemoteMaskStroke,
+  deleteRemoteLayer,
   deleteRemoteObject,
   deleteRemoteStroke,
   loadRemoteScene,
@@ -450,6 +453,7 @@ export function PhaseOneCanvas({
   const activeStrokeIdRef = useRef<string | null>(null);
   const activeMaskToolRef = useRef<"pen" | "eraser" | null>(null);
   const maskEditingLayerIdRef = useRef<string | null>(null);
+  const isolatingLayerIdRef = useRef<string | null>(null);
   const activePenPointerIdRef = useRef<number | null>(null);
   const erasedStrokeIdsRef = useRef(new Set<string>());
   const selectionRef = useRef<CanvasSelection | null>(null);
@@ -492,6 +496,9 @@ export function PhaseOneCanvas({
   ]);
   const [activeLayerId, setActiveLayerId] = useState(canvasId);
   const [maskEditingLayerId, setMaskEditingLayerId] = useState<string | null>(
+    null,
+  );
+  const [isolatingLayerId, setIsolatingLayerId] = useState<string | null>(
     null,
   );
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
@@ -899,6 +906,7 @@ export function PhaseOneCanvas({
       { width: WORLD_WIDTH, height: WORLD_HEIGHT },
       {
         layers: layersRef.current,
+        isolatingLayerId: isolatingLayerIdRef.current,
         strokes: strokesRef.current,
         maskStrokes: maskStrokesRef.current,
         maskCache: maskCacheRef.current,
@@ -950,7 +958,10 @@ export function PhaseOneCanvas({
       const activeLayer = layersRef.current.find(
         (layer) => layer.id === targetLayerId,
       );
-      if (activeLayer?.visible && activeLayer.opacity > 0) {
+      if (
+        activeLayer &&
+        isLayerRenderable(activeLayer, isolatingLayerIdRef.current)
+      ) {
         context.save();
         if (!editingMaskLayerId) {
           context.globalAlpha *= activeLayer.opacity;
@@ -1311,6 +1322,13 @@ export function PhaseOneCanvas({
       }
       if (
         !nextLayer.visible &&
+        isolatingLayerIdRef.current === nextLayer.id
+      ) {
+        isolatingLayerIdRef.current = null;
+        setIsolatingLayerId(null);
+      }
+      if (
+        !nextLayer.visible &&
         objectsRef.current.some(
           (canvasObject) =>
             canvasObject.id === selectedObjectIdRef.current &&
@@ -1351,6 +1369,26 @@ export function PhaseOneCanvas({
     [persistLayerChanges],
   );
 
+  const queueLayerDeletion = useCallback(
+    (layerId: string) => {
+      const tombstone = markSceneDeletion(projectId, "layer", layerId);
+      queueRemoteSync(async () => {
+        await tombstone.catch(reportLocalCacheError);
+        await deleteRemoteLayer(supabase, remoteContext, layerId);
+        void clearSceneDeletion(projectId, "layer", layerId).catch(
+          reportLocalCacheError,
+        );
+      });
+    },
+    [
+      projectId,
+      queueRemoteSync,
+      reportLocalCacheError,
+      remoteContext,
+      supabase,
+    ],
+  );
+
   const activateLayer = useCallback((id: string) => {
     activeLayerIdRef.current = id;
     setActiveLayerId(id);
@@ -1371,6 +1409,11 @@ export function PhaseOneCanvas({
         return;
       }
 
+      if (isolatingLayerIdRef.current !== null) {
+        isolatingLayerIdRef.current = null;
+        setIsolatingLayerId(null);
+      }
+
       if (!layer.hasMask) {
         const nextLayer = { ...layer, hasMask: true, maskEnabled: true };
         changeLayer(nextLayer);
@@ -1380,6 +1423,34 @@ export function PhaseOneCanvas({
       setMaskEditingLayerId(layerId);
     },
     [activateLayer, changeLayer],
+  );
+
+  const toggleLayerIsolate = useCallback(
+    (layerId: string) => {
+      const layer = layersRef.current.find((item) => item.id === layerId);
+      if (!layer?.visible) {
+        return;
+      }
+
+      activateLayer(layerId);
+
+      if (isolatingLayerIdRef.current === layerId) {
+        isolatingLayerIdRef.current = null;
+        setIsolatingLayerId(null);
+        scheduleRender();
+        return;
+      }
+
+      if (maskEditingLayerIdRef.current !== null) {
+        maskEditingLayerIdRef.current = null;
+        setMaskEditingLayerId(null);
+      }
+
+      isolatingLayerIdRef.current = layerId;
+      setIsolatingLayerId(layerId);
+      scheduleRender();
+    },
+    [activateLayer, scheduleRender],
   );
 
   const toggleMaskEnabled = useCallback(
@@ -1416,6 +1487,10 @@ export function PhaseOneCanvas({
   useEffect(() => {
     maskEditingLayerIdRef.current = maskEditingLayerId;
   }, [maskEditingLayerId]);
+
+  useEffect(() => {
+    isolatingLayerIdRef.current = isolatingLayerId;
+  }, [isolatingLayerId]);
 
   useEffect(() => {
     const nextTheme: ThemeMode =
@@ -1704,12 +1779,26 @@ export function PhaseOneCanvas({
           loadCanvasLayers(projectId),
           loadSceneDeletions(projectId),
         ]);
-        localLayers =
+        deletions = storedDeletions.filter((deletion) =>
+          isUuid(deletion.entityId),
+        );
+        const deletedLayerIds = new Set(
+          deletions
+            .filter((deletion) => deletion.kind === "layer")
+            .map((deletion) => deletion.entityId),
+        );
+        localLayers = (
           storedLayers.length > 0
             ? storedLayers.map((layer) => normalizeCanvasLayer(layer))
-            : [createDefaultLayer(canvasId)];
+            : [createDefaultLayer(canvasId)]
+        ).filter((layer) => !deletedLayerIds.has(layer.id));
+        if (localLayers.length === 0) {
+          localLayers = [createDefaultLayer(canvasId)];
+        }
         const localLayerIds = new Set(localLayers.map((layer) => layer.id));
-        localStrokes = storedStrokes.map((stroke) =>
+        localStrokes = storedStrokes
+          .filter((stroke) => !deletedLayerIds.has(stroke.layerId))
+          .map((stroke) =>
           ({
             ...stroke,
             id: isUuid(stroke.id) ? stroke.id : createUuid(),
@@ -1718,7 +1807,9 @@ export function PhaseOneCanvas({
               : canvasId,
           }),
         );
-        localObjects = storedObjects.map((canvasObject) =>
+        localObjects = storedObjects
+          .filter((canvasObject) => !deletedLayerIds.has(canvasObject.layerId))
+          .map((canvasObject) =>
           ({
             ...canvasObject,
             id: isUuid(canvasObject.id) ? canvasObject.id : createUuid(),
@@ -1730,7 +1821,9 @@ export function PhaseOneCanvas({
               : { artifactId: undefined, storagePath: undefined }),
           }),
         );
-        localMaskStrokes = storedMaskStrokes.map((maskStroke) =>
+        localMaskStrokes = storedMaskStrokes
+          .filter((maskStroke) => !deletedLayerIds.has(maskStroke.layerId))
+          .map((maskStroke) =>
           normalizeMaskStroke({
             ...maskStroke,
             id: isUuid(maskStroke.id) ? maskStroke.id : createUuid(),
@@ -1738,9 +1831,6 @@ export function PhaseOneCanvas({
               ? maskStroke.layerId
               : canvasId,
           }),
-        );
-        deletions = storedDeletions.filter((deletion) =>
-          isUuid(deletion.entityId),
         );
         await Promise.all(
           storedDeletions
@@ -1765,11 +1855,18 @@ export function PhaseOneCanvas({
 
       try {
         const remote = await loadRemoteScene(supabase, remoteContext);
+        const deletedLayerIds = new Set(
+          deletions
+            .filter((deletion) => deletion.kind === "layer")
+            .map((deletion) => deletion.entityId),
+        );
         const layerMap = new Map(
-          remote.layers.map((layer) => [layer.id, layer]),
+          remote.layers
+            .filter((layer) => !deletedLayerIds.has(layer.id))
+            .map((layer) => [layer.id, layer]),
         );
         localLayers.forEach((layer) => {
-          if (!layerMap.has(layer.id)) {
+          if (!deletedLayerIds.has(layer.id) && !layerMap.has(layer.id)) {
             layerMap.set(layer.id, layer);
           }
         });
@@ -1820,13 +1917,17 @@ export function PhaseOneCanvas({
             objectMap.set(canvasObject.id, canvasObject);
           }
         });
-        const mergedStrokes = Array.from(strokeMap.values()).map((stroke) => ({
+        const mergedStrokes = Array.from(strokeMap.values())
+          .filter((stroke) => !deletedLayerIds.has(stroke.layerId))
+          .map((stroke) => ({
           ...stroke,
           layerId: mergedLayerIds.has(stroke.layerId)
             ? stroke.layerId
             : canvasId,
         }));
-        const mergedObjects = Array.from(objectMap.values()).map(
+        const mergedObjects = Array.from(objectMap.values())
+          .filter((canvasObject) => !deletedLayerIds.has(canvasObject.layerId))
+          .map(
           (canvasObject) => ({
             ...canvasObject,
             layerId: mergedLayerIds.has(canvasObject.layerId)
@@ -1835,7 +1936,9 @@ export function PhaseOneCanvas({
           }),
         );
 
-        const mergedMaskStrokes = Array.from(maskStrokeMap.values()).map(
+        const mergedMaskStrokes = Array.from(maskStrokeMap.values())
+          .filter((maskStroke) => !deletedLayerIds.has(maskStroke.layerId))
+          .map(
           (maskStroke) => ({
             ...maskStroke,
             layerId: mergedLayerIds.has(maskStroke.layerId)
@@ -1923,30 +2026,64 @@ export function PhaseOneCanvas({
               ),
             );
           });
-        deletions.forEach((deletion) => {
+        [...deletions]
+          .sort((first, second) => {
+            const priority = (kind: SceneDeletion["kind"]) => {
+              switch (kind) {
+                case "stroke":
+                case "mask-stroke":
+                case "object":
+                  return 0;
+                case "layer":
+                  return 1;
+                default: {
+                  const _exhaustive: never = kind;
+                  return _exhaustive;
+                }
+              }
+            };
+            return priority(first.kind) - priority(second.kind);
+          })
+          .forEach((deletion) => {
           queueRemoteSync(async () => {
-            if (deletion.kind === "stroke") {
-              await deleteRemoteStroke(
-                supabase,
-                remoteContext,
-                deletion.entityId,
-              );
-            } else if (deletion.kind === "mask-stroke") {
-              await deleteRemoteMaskStroke(
-                supabase,
-                remoteContext,
-                deletion.entityId,
-              );
-            } else {
-              const remoteObject = remote.objects.find(
-                (canvasObject) => canvasObject.id === deletion.entityId,
-              );
-              if (remoteObject) {
-                await deleteRemoteObject(
+            switch (deletion.kind) {
+              case "stroke":
+                await deleteRemoteStroke(
                   supabase,
                   remoteContext,
-                  remoteObject,
+                  deletion.entityId,
                 );
+                break;
+              case "mask-stroke":
+                await deleteRemoteMaskStroke(
+                  supabase,
+                  remoteContext,
+                  deletion.entityId,
+                );
+                break;
+              case "object": {
+                const remoteObject = remote.objects.find(
+                  (canvasObject) => canvasObject.id === deletion.entityId,
+                );
+                if (remoteObject) {
+                  await deleteRemoteObject(
+                    supabase,
+                    remoteContext,
+                    remoteObject,
+                  );
+                }
+                break;
+              }
+              case "layer":
+                await deleteRemoteLayer(
+                  supabase,
+                  remoteContext,
+                  deletion.entityId,
+                );
+                break;
+              default: {
+                const _exhaustive: never = deletion.kind;
+                return _exhaustive;
               }
             }
             void clearSceneDeletion(
@@ -2065,6 +2202,100 @@ export function PhaseOneCanvas({
       remoteContext,
       reportLocalCacheError,
       supabase,
+    ],
+  );
+
+  const deleteLayer = useCallback(
+    (layerId: string) => {
+      if (layersRef.current.length <= 1) {
+        return;
+      }
+
+      const layerStrokes = strokesRef.current.filter(
+        (stroke) => stroke.layerId === layerId,
+      );
+      const layerMaskStrokes = maskStrokesRef.current.filter(
+        (maskStroke) => maskStroke.layerId === layerId,
+      );
+      const layerObjects = objectsRef.current.filter(
+        (canvasObject) => canvasObject.layerId === layerId,
+      );
+
+      if (maskEditingLayerIdRef.current === layerId) {
+        maskEditingLayerIdRef.current = null;
+        setMaskEditingLayerId(null);
+      }
+      if (isolatingLayerIdRef.current === layerId) {
+        isolatingLayerIdRef.current = null;
+        setIsolatingLayerId(null);
+      }
+      if (
+        selectedObjectIdRef.current &&
+        layerObjects.some(
+          (canvasObject) => canvasObject.id === selectedObjectIdRef.current,
+        )
+      ) {
+        selectedObjectIdRef.current = null;
+        setSelectedObjectId(null);
+        setIsObjectPropertiesOpen(false);
+        setPropertiesObject(null);
+      }
+
+      const nextLayers = layersRef.current.filter((layer) => layer.id !== layerId);
+      strokesRef.current = strokesRef.current.filter(
+        (stroke) => stroke.layerId !== layerId,
+      );
+      maskStrokesRef.current = maskStrokesRef.current.filter(
+        (maskStroke) => maskStroke.layerId !== layerId,
+      );
+      maskCacheRef.current.invalidate();
+      layerObjects.forEach((canvasObject) => {
+        imageSourcesRef.current.get(canvasObject.id)?.close();
+        imageSourcesRef.current.delete(canvasObject.id);
+      });
+      objectsRef.current = objectsRef.current.filter(
+        (canvasObject) => canvasObject.layerId !== layerId,
+      );
+
+      if (activeLayerIdRef.current === layerId) {
+        const sorted = [...nextLayers].sort(
+          (first, second) => second.order - first.order,
+        );
+        const nextActive = sorted[0] ?? nextLayers[0];
+        if (nextActive) {
+          activeLayerIdRef.current = nextActive.id;
+          setActiveLayerId(nextActive.id);
+        }
+      }
+
+      layersRef.current = nextLayers;
+      setLayers(nextLayers);
+      invalidateSnapshots();
+      scheduleRender();
+
+      void deleteCanvasLayer(layerId).catch(reportLocalCacheError);
+      layerStrokes.forEach((stroke) => {
+        void deleteStroke(stroke.id).catch(reportLocalCacheError);
+        queueStrokeDeletion(stroke.id);
+      });
+      layerMaskStrokes.forEach((maskStroke) => {
+        void deleteMaskStroke(maskStroke.id).catch(reportLocalCacheError);
+        queueMaskStrokeDeletion(maskStroke.id);
+      });
+      layerObjects.forEach((canvasObject) => {
+        void deleteCanvasObject(canvasObject.id).catch(reportLocalCacheError);
+        queueObjectDeletion(canvasObject);
+      });
+      queueLayerDeletion(layerId);
+    },
+    [
+      invalidateSnapshots,
+      queueLayerDeletion,
+      queueMaskStrokeDeletion,
+      queueObjectDeletion,
+      queueStrokeDeletion,
+      reportLocalCacheError,
+      scheduleRender,
     ],
   );
 
@@ -2250,8 +2481,7 @@ export function PhaseOneCanvas({
                 layersRef.current.some(
                   (layer) =>
                     layer.id === canvasObject.layerId &&
-                    layer.visible &&
-                    layer.opacity > 0,
+                    isLayerRenderable(layer, isolatingLayerIdRef.current),
                 ),
               ),
               layersRef.current,
@@ -4030,6 +4260,7 @@ export function PhaseOneCanvas({
           brushSettings={brushSettings}
           isAgentPanelOpen={isAgentPanelOpen}
           layers={layers}
+          isolatingLayerId={isolatingLayerId}
           maskEditingLayerId={maskEditingLayerId}
           onBrushSettingsChange={setBrushSettings}
           onFit={fitToScreen}
@@ -4037,7 +4268,9 @@ export function PhaseOneCanvas({
           onLayerActivate={activateLayer}
           onLayerAdd={addLayer}
           onLayerChange={changeLayer}
+          onLayerDelete={deleteLayer}
           onLayerMove={moveLayer}
+          onIsolateToggle={toggleLayerIsolate}
           onMaskEditToggle={toggleMaskEdit}
           onMaskEnabledToggle={toggleMaskEnabled}
           onRedo={redo}
@@ -4126,6 +4359,8 @@ export function PhaseOneCanvas({
             <div className="canvas-status-banner">AI RESPONDING</div>
           ) : maskEditingLayerId ? (
             <div className="canvas-status-banner">MASK MODE</div>
+          ) : isolatingLayerId ? (
+            <div className="canvas-status-banner">ISOLATE LAYER MODE</div>
           ) : null}
         </div>
 

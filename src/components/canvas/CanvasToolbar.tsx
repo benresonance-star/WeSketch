@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Bot,
   Eraser,
@@ -29,6 +29,7 @@ type CanvasToolbarProps = {
   brushSettings: BrushSettings;
   layers: CanvasLayer[];
   activeLayerId: string;
+  isolatingLayerId: string | null;
   maskEditingLayerId: string | null;
   onBrushSettingsChange: (settings: BrushSettings) => void;
   onToolChange: (tool: Tool) => void;
@@ -39,7 +40,9 @@ type CanvasToolbarProps = {
   onLayerActivate: (id: string) => void;
   onLayerAdd: () => void;
   onLayerChange: (layer: CanvasLayer) => void;
+  onLayerDelete: (id: string) => void;
   onLayerMove: (id: string, direction: "up" | "down") => void;
+  onIsolateToggle: (id: string) => void;
   onMaskEditToggle: (id: string) => void;
   onMaskEnabledToggle: (id: string) => void;
   onToggleAgentPanel: () => void;
@@ -56,6 +59,7 @@ const TOOLS: Array<{
   { tool: "hand", icon: Hand, label: "Pan", separatorBefore: true },
 ];
 const BRUSH_PALETTE_LAYOUT_KEY = "wesketch-brush-palette-layout-v1";
+const LAYERS_BELOW_PEN_HUD_GAP_PX = 8;
 const SWATCH_PEN_DRAG_THRESHOLD_PX = 4;
 
 type SwatchPenDragState = {
@@ -70,6 +74,7 @@ export function CanvasToolbar({
   tool,
   brushSettings,
   layers,
+  isolatingLayerId,
   maskEditingLayerId,
   activeLayerId,
   onBrushSettingsChange,
@@ -81,7 +86,9 @@ export function CanvasToolbar({
   onLayerActivate,
   onLayerAdd,
   onLayerChange,
+  onLayerDelete,
   onLayerMove,
+  onIsolateToggle,
   onMaskEditToggle,
   onMaskEnabledToggle,
   onToggleAgentPanel,
@@ -92,6 +99,10 @@ export function CanvasToolbar({
     useState<BrushPaletteLayout>("standard");
   const swatchPenDragRef = useRef<SwatchPenDragState | null>(null);
   const suppressSwatchClickRef = useRef(false);
+  const brushPaletteRef = useRef<HTMLElement>(null);
+  const [layersPreferredTop, setLayersPreferredTop] = useState<number | null>(
+    null,
+  );
 
   useEffect(() => {
     const storedLayout = window.localStorage.getItem(BRUSH_PALETTE_LAYOUT_KEY);
@@ -105,6 +116,51 @@ export function CanvasToolbar({
     setPaletteLayout(layout);
     window.localStorage.setItem(BRUSH_PALETTE_LAYOUT_KEY, layout);
   };
+
+  const syncLayersPreferredTop = useCallback(() => {
+    if (!isPaletteOpen || paletteLayout !== "horizontal") {
+      setLayersPreferredTop(null);
+      return;
+    }
+
+    const palette = brushPaletteRef.current;
+    if (!palette) {
+      return;
+    }
+
+    setLayersPreferredTop(
+      palette.getBoundingClientRect().bottom + LAYERS_BELOW_PEN_HUD_GAP_PX,
+    );
+  }, [isPaletteOpen, paletteLayout]);
+
+  useLayoutEffect(() => {
+    syncLayersPreferredTop();
+  }, [
+    syncLayersPreferredTop,
+    brushSettings.size,
+    maskEditingLayerId,
+    isLayersOpen,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!isPaletteOpen || paletteLayout !== "horizontal") {
+      return;
+    }
+
+    const palette = brushPaletteRef.current;
+    if (!palette) {
+      return;
+    }
+
+    const observer = new ResizeObserver(syncLayersPreferredTop);
+    observer.observe(palette);
+    window.addEventListener("resize", syncLayersPreferredTop);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncLayersPreferredTop);
+    };
+  }, [isPaletteOpen, paletteLayout, syncLayersPreferredTop]);
 
   const togglePenPalette = () => {
     onToolChange("pen");
@@ -325,18 +381,23 @@ export function CanvasToolbar({
           onChange={onBrushSettingsChange}
           onClose={() => setIsPaletteOpen(false)}
           onLayoutChange={changePaletteLayout}
+          panelRef={brushPaletteRef}
           settings={brushSettings}
         />
       ) : null}
       {isLayersOpen ? (
         <LayersPanel
           activeLayerId={activeLayerId}
+          isolatingLayerId={isolatingLayerId}
           layers={layers}
           maskEditingLayerId={maskEditingLayerId}
+          preferredTop={layersPreferredTop}
           onActivate={onLayerActivate}
           onAdd={onLayerAdd}
           onChange={onLayerChange}
           onClose={() => setIsLayersOpen(false)}
+          onDelete={onLayerDelete}
+          onIsolateToggle={onIsolateToggle}
           onMaskEditToggle={onMaskEditToggle}
           onMaskEnabledToggle={onMaskEnabledToggle}
           onMove={onLayerMove}

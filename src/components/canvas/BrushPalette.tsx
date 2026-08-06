@@ -1,4 +1,5 @@
 import { PanelLeft, PanelTop, X } from "lucide-react";
+import type { RefObject } from "react";
 
 import styles from "@/components/canvas/BrushPalette.module.css";
 import type { BrushSettings } from "@/types/canvas";
@@ -28,6 +29,7 @@ type BrushPaletteProps = {
   settings: BrushSettings;
   layout: BrushPaletteLayout;
   maskMode?: boolean;
+  panelRef?: RefObject<HTMLElement | null>;
   onChange: (settings: BrushSettings) => void;
   onLayoutChange: (layout: BrushPaletteLayout) => void;
   onClose: () => void;
@@ -37,6 +39,7 @@ export function BrushPalette({
   settings,
   layout,
   maskMode = false,
+  panelRef,
   onChange,
   onLayoutChange,
   onClose,
@@ -51,6 +54,7 @@ export function BrushPalette({
         layout === "horizontal" ? styles.horizontal : styles.standard
       } brush-popover ${layout}`}
       data-testid="brush-palette"
+      ref={panelRef}
     >
       <header className="brush-popover-header">
         <div>

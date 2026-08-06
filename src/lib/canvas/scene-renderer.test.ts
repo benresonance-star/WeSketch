@@ -71,4 +71,13 @@ describe("orderedVisibleLayers", () => {
       ]).map((item) => item.id),
     ).toEqual(["visible"]);
   });
+
+  it("shows only the isolated layer while isolate mode is active", () => {
+    expect(
+      orderedVisibleLayers(
+        [layer("solo", 0), layer("other", 1, false), layer("hidden", 2, true)],
+        "solo",
+      ).map((item) => item.id),
+    ).toEqual(["solo"]);
+  });
 });

@@ -164,8 +164,19 @@
   padding: 6px 2px;
 }
 
-.panel.detailed .rowMain .orderActions {
+.panel.detailed .rowMain .rowActions {
   margin-left: auto;
+}
+
+.rowActions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.panel.detailed .rowMain .orderActions {
+  margin-left: 0;
 }
 
 .orderActions {
@@ -183,6 +194,7 @@
 }
 
 .panel:not(.detailed) .orderActions,
+.panel:not(.detailed) .rowActions,
 .panel:not(.detailed) .opacityRow,
 .panel:not(.detailed) .maskActions {
   display: none;
@@ -225,8 +237,20 @@
   color: var(--muted);
 }
 
+.panel button.isolateEditButton:not(.maskEditActive) {
+  border: 1px solid var(--muted);
+  color: var(--muted);
+}
+
 .panel button.maskEditButton:not(.maskEditActive):active,
 .panel button.maskEditButton:not(.maskEditActive):focus-visible {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.panel button.isolateEditButton:not(.maskEditActive):active,
+.panel button.isolateEditButton:not(.maskEditActive):focus-visible {
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);
@@ -249,6 +273,12 @@
 
 .maskEnableOff {
   opacity: 0.45;
+}
+
+.panel button.deleteButton:active,
+.panel button.deleteButton:focus-visible {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
 }
 
 .row output {
