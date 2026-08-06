@@ -353,7 +353,9 @@ export function LayersPanel({
                       <Unlink aria-hidden="true" />
                     )}
                   </button>
-                ) : null}
+                ) : (
+                  <span aria-hidden="true" className={styles.maskLinkPlaceholder} />
+                )}
               </div>
               {!isDetailedView ? (
                 <input

@@ -171,8 +171,9 @@
 .rowActions {
   align-items: center;
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 0 84px;
   gap: 4px;
+  width: 84px;
 }
 
 .panel.detailed .rowMain .orderActions {
@@ -223,11 +224,18 @@
 .maskActions {
   align-items: center;
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 0 88px;
   gap: 2px;
+  width: 88px;
 }
 
 .maskActions button {
+  height: 28px;
+  width: 28px;
+}
+
+.maskLinkPlaceholder {
+  flex: 0 0 28px;
   height: 28px;
   width: 28px;
 }
