@@ -96,6 +96,7 @@ import {
   type RemoteSceneContext,
 } from "@/lib/canvas/remote-persistence";
 import { createClient } from "@/lib/supabase/client";
+import { runThemeTransition } from "@/lib/theme-transition";
 import {
   deleteUiConfiguration as deleteRemoteUiConfiguration,
   loadUiConfigurations,
@@ -1129,18 +1130,24 @@ export function PhaseOneCanvas({
 
   const changeThemeMode = useCallback(
     (nextTheme: ThemeMode) => {
-      setThemeMode(nextTheme);
-      workspaceColorRef.current =
-        nextTheme === "dark" ? DARK_WORKSPACE_COLOR : LIGHT_WORKSPACE_COLOR;
-      document.documentElement.dataset.theme = nextTheme;
-      try {
-        localStorage.setItem("wesketch-theme-v1", nextTheme);
-      } catch {
-        // The selected theme still applies for this session.
+      if (nextTheme === themeMode) {
+        return;
       }
-      scheduleRender();
+
+      runThemeTransition(() => {
+        setThemeMode(nextTheme);
+        workspaceColorRef.current =
+          nextTheme === "dark" ? DARK_WORKSPACE_COLOR : LIGHT_WORKSPACE_COLOR;
+        document.documentElement.dataset.theme = nextTheme;
+        try {
+          localStorage.setItem("wesketch-theme-v1", nextTheme);
+        } catch {
+          // The selected theme still applies for this session.
+        }
+        scheduleRender();
+      });
     },
-    [scheduleRender],
+    [scheduleRender, themeMode],
   );
 
   const changeCanvasColor = useCallback(
